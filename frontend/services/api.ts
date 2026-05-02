@@ -762,12 +762,24 @@ export async function deleteWorkflow(workflowId: string) {
 }
 
 export interface WorkflowAIGenerateResult {
+  status: "ready" | "needs_context" | "declined";
+  assistant_message?: string;
+  questions?: string[];
+  missing_context?: string[];
+  can_build?: boolean;
+  declined_reason?: string | null;
+  audit_log_id?: string | null;
   workflow_name: string;
   workflow_description: string;
   nodes: unknown[];
   edges: unknown[];
   notes: string[];
   warnings: string[];
+}
+
+export interface WorkflowChatMessage {
+  role: "user" | "assistant";
+  content: string;
 }
 
 export interface WorkflowTemplateItem {
@@ -822,6 +834,8 @@ export async function transcribeAudioWithDeepgram(
 export async function generateWorkflowFromPrompt(payload: {
   prompt: string;
   doctor_id?: string | null;
+  conversation_history?: WorkflowChatMessage[];
+  clarification_turns?: number;
 }): Promise<WorkflowAIGenerateResult> {
   const response = await fetch(`${API_URL}/api/workflows/ai/generate`, {
     method: "POST",

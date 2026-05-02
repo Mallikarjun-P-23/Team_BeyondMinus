@@ -1,0 +1,251 @@
+{
+  "categories": [
+    {
+      "category": "Triggers",
+      "react_flow_type": "trigger",
+      "nodes": [
+        {
+          "nodeType": "lab_results_received",
+          "label": "Lab Results Received",
+          "description": "Triggered when lab results arrive for a patient",
+          "params": {},
+          "keywords": ["lab", "result", "report", "upload", "test"]
+        },
+        {
+          "nodeType": "abnormal_result_detected",
+          "label": "Abnormal Result",
+          "description": "Triggered when an abnormal lab value is detected",
+          "params": {},
+          "keywords": ["abnormal", "critical", "high", "low", "flag"]
+        },
+        {
+          "nodeType": "follow_up_due",
+          "label": "Follow-Up Due",
+          "description": "Triggered when a patient is due for follow-up",
+          "params": {},
+          "keywords": ["follow", "due", "reminder", "pending"]
+        },
+        {
+          "nodeType": "appointment_missed",
+          "label": "Appointment Missed",
+          "description": "Triggered when a patient misses an appointment",
+          "params": {},
+          "keywords": ["missed", "no show", "no_show"]
+        },
+        {
+          "nodeType": "new_patient_registered",
+          "label": "New Patient Registered",
+          "description": "Triggered when a new patient registers",
+          "params": {},
+          "keywords": ["new patient", "register", "signup", "sign up"]
+        },
+        {
+          "nodeType": "prescription_expiring",
+          "label": "Prescription Expiring",
+          "description": "Triggered when prescription is nearing expiry",
+          "params": {},
+          "keywords": ["prescription", "medication", "expiry", "expire"]
+        },
+        {
+          "nodeType": "blood_gathering_trigger",
+          "label": "Blood Gathering Trigger",
+          "description": "Triggered when donor outreach should begin",
+          "params": {},
+          "keywords": ["blood", "donor", "campaign", "transfusion"]
+        }
+      ]
+    },
+    {
+      "category": "Conditionals",
+      "react_flow_type": "conditional",
+      "nodes": [
+        {
+          "nodeType": "check_result_values",
+          "label": "Check Result Values",
+          "description": "Branch based on lab thresholds",
+          "params": {"test_name": "", "operator": "greater_than", "threshold": ""},
+          "keywords": ["threshold", "abnormal", "value", "check"]
+        },
+        {
+          "nodeType": "check_insurance",
+          "label": "Check Insurance",
+          "description": "Branch based on insurance status",
+          "params": {"insurance_type": "any"},
+          "keywords": ["insurance"]
+        },
+        {
+          "nodeType": "check_patient_age",
+          "label": "Check Patient Age",
+          "description": "Branch based on patient age",
+          "params": {"operator": "greater_than", "threshold": ""},
+          "keywords": ["age"]
+        },
+        {
+          "nodeType": "check_appointment_history",
+          "label": "Check Appointment History",
+          "description": "Branch based on last appointment",
+          "params": {"days_since_last": "90"},
+          "keywords": ["history", "last appointment"]
+        },
+        {
+          "nodeType": "check_medication_list",
+          "label": "Check Medication List",
+          "description": "Branch based on current medication",
+          "params": {"medication": ""},
+          "keywords": ["medication", "drug"]
+        }
+      ]
+    },
+    {
+      "category": "Actions",
+      "react_flow_type": "action",
+      "nodes": [
+        {
+          "nodeType": "call_patient",
+          "label": "Call Patient",
+          "description": "Place AI outbound call",
+          "params": {"lab_result_summary": ""},
+          "keywords": ["call", "phone", "voice"]
+        },
+        {
+          "nodeType": "send_sms",
+          "label": "Send SMS",
+          "description": "Send SMS to patient",
+          "params": {"message": ""},
+          "keywords": ["sms", "text", "message"]
+        },
+        {
+          "nodeType": "schedule_appointment",
+          "label": "Schedule Appointment",
+          "description": "Schedule appointment",
+          "params": {},
+          "keywords": ["schedule", "book", "appointment", "slot", "reschedule"]
+        },
+        {
+          "nodeType": "send_notification",
+          "label": "Send Notification",
+          "description": "Notify internal staff",
+          "params": {"message": "", "recipient": "staff", "priority": "normal"},
+          "keywords": ["notify", "alert", "notification", "staff"]
+        },
+        {
+          "nodeType": "create_lab_order",
+          "label": "Create Lab Order",
+          "description": "Create lab order in system",
+          "params": {"test_type": "", "priority": "routine", "notes": ""},
+          "keywords": ["lab order", "order", "test"]
+        },
+        {
+          "nodeType": "create_referral",
+          "label": "Create Referral",
+          "description": "Create specialist referral",
+          "params": {"specialty": "", "reason": "", "urgency": "routine"},
+          "keywords": ["referral", "specialist"]
+        },
+        {
+          "nodeType": "update_patient_record",
+          "label": "Update Patient Record",
+          "description": "Update patient record fields",
+          "params": {"risk_level": "", "notes": ""},
+          "keywords": ["update", "record", "risk"]
+        },
+        {
+          "nodeType": "assign_to_staff",
+          "label": "Assign to Staff",
+          "description": "Assign patient follow-up task",
+          "params": {"staff_id": "", "task_type": "follow_up", "due_date": ""},
+          "keywords": ["assign", "staff", "task"]
+        },
+        {
+          "nodeType": "start_blood_campaign",
+          "label": "Start Blood Campaign",
+          "description": "Initiate blood donor outreach",
+          "params": {
+            "blood_type": "O+",
+            "recipient_name": "",
+            "patient_location": "",
+            "reason": "",
+            "batch_size": "3"
+          },
+          "keywords": ["blood", "donor", "campaign"]
+        }
+      ]
+    },
+    {
+      "category": "Output",
+      "react_flow_type": "endpoint",
+      "nodes": [
+        {
+          "nodeType": "log_completion",
+          "label": "Log Completion",
+          "description": "Log workflow completion",
+          "params": {},
+          "keywords": ["log", "audit", "completion", "record"]
+        },
+        {
+          "nodeType": "generate_transcript",
+          "label": "Generate Transcript",
+          "description": "Fetch call transcript",
+          "params": {},
+          "keywords": ["transcript", "call recording", "conversation"]
+        },
+        {
+          "nodeType": "create_report",
+          "label": "Create Report",
+          "description": "Create execution report",
+          "params": {},
+          "keywords": ["report", "summary", "document"]
+        },
+        {
+          "nodeType": "send_summary_to_doctor",
+          "label": "Send Summary to Doctor",
+          "description": "Send workflow summary to doctor",
+          "params": {},
+          "keywords": ["doctor", "notify", "summary", "email"]
+        }
+      ]
+    }
+  ],
+  "unsupported_hints": {
+    "whatsapp": "WhatsApp delivery is not available in the current workflow blocks.",
+    "slack": "Slack delivery is not available in the current workflow blocks.",
+    "teams": "Microsoft Teams delivery is not available in the current workflow blocks.",
+    "webhook": "Custom webhook actions are not available in the current workflow blocks.",
+    "ehr": "Direct EHR integration is not available in the current workflow blocks.",
+    "fhir": "FHIR integration is not available in the current workflow blocks.",
+    "image analysis": "Image analysis is not available in the current workflow blocks.",
+    "radiology": "Radiology image interpretation is not available in the current workflow blocks.",
+    "ocr": "OCR is not available in the current workflow blocks."
+  },
+  "fallbacks": {
+    "default_trigger": "lab_results_received",
+    "default_output": "log_completion"
+  },
+  "medical_keywords": [
+    "patient",
+    "doctor",
+    "clinic",
+    "hospital",
+    "lab",
+    "test",
+    "result",
+    "blood",
+    "donor",
+    "appointment",
+    "follow-up",
+    "follow up",
+    "prescription",
+    "medication",
+    "diagnosis",
+    "symptom",
+    "report",
+    "referral",
+    "insurance",
+    "care",
+    "treatment",
+    "nurse"
+  ],
+  "confidence": {
+    "min_score": 0.55
+  }
+}

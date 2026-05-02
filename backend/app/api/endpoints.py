@@ -522,11 +522,20 @@ class WorkflowUpdate(BaseModel):
 
 
 class WorkflowAIGenerateRequest(BaseModel):
-    prompt: str = Field(min_length=10, max_length=5000)
+    prompt: str = Field(min_length=1, max_length=5000)
     doctor_id: str | None = None
+    conversation_history: list[dict[str, Any]] = Field(default_factory=list)
+    clarification_turns: int = 0
 
 
 class WorkflowAIGenerateResponse(BaseModel):
+    status: str = "ready"
+    assistant_message: str = ""
+    questions: list[str] = Field(default_factory=list)
+    missing_context: list[str] = Field(default_factory=list)
+    can_build: bool = True
+    declined_reason: str | None = None
+    audit_log_id: str | None = None
     workflow_name: str
     workflow_description: str
     nodes: list[dict[str, Any]]
@@ -1651,6 +1660,8 @@ async def generate_workflow_with_ai(body: WorkflowAIGenerateRequest):
         return await generate_workflow_from_natural_language(
             prompt=body.prompt,
             doctor_id=body.doctor_id,
+            conversation_history=body.conversation_history,
+            clarification_turns=body.clarification_turns,
         )
     except WorkflowBuilderError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

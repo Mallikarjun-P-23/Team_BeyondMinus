@@ -14,9 +14,19 @@ echo "Applying migrations..."
 
 cd "${BACKEND_DIR}"
 
+PYTHON_BIN="${PYTHON_BIN:-python3.11}"
+
+if [[ -d ".venv" ]]; then
+  current_python_version="$({ .venv/bin/python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")'; } 2>/dev/null || true)"
+  if [[ "${current_python_version}" != "3.11" ]]; then
+    echo "Recreating backend virtual environment with ${PYTHON_BIN}..."
+    rm -rf .venv
+  fi
+fi
+
 if [[ ! -d ".venv" ]]; then
   echo "Creating backend virtual environment..."
-  python3 -m venv .venv
+  "${PYTHON_BIN}" -m venv .venv
 fi
 
 source .venv/bin/activate

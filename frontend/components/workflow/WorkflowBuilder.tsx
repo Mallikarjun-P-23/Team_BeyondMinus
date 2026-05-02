@@ -50,6 +50,7 @@ import {
   listPatients,
   createPatient,
   transcribeAudioWithDeepgram,
+  type WorkflowChatMessage,
   type ReportItem,
   type CallStatusResult,
   type ExecuteWorkflowResult,
@@ -138,6 +139,10 @@ type ExecutionStep = {
   node_type?: string;
   status?: string;
   message?: string;
+};
+
+type AgentChatMessage = WorkflowChatMessage & {
+  id: string;
 };
 
 // ─── Example workflow ────────────────────────────────────────────────────────
@@ -326,6 +331,14 @@ function FlowContent() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiWarnings, setAiWarnings] = useState<string[]>([]);
   const [aiNotes, setAiNotes] = useState<string[]>([]);
+  const [aiMessages, setAiMessages] = useState<AgentChatMessage[]>([
+    {
+      id: "ai-welcome",
+      role: "assistant",
+      content: "hi how may I help you build a workflow today",
+    },
+  ]);
+  const [aiClarificationTurns, setAiClarificationTurns] = useState(0);
   const [isSpeechRecording, setIsSpeechRecording] = useState(false);
   const [isSpeechTranscribing, setIsSpeechTranscribing] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
@@ -994,6 +1007,15 @@ function FlowContent() {
       return;
     }
 
+    const userMessage: AgentChatMessage = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      content: prompt,
+    };
+    const nextConversation = [...aiMessages, userMessage];
+
+    setAiMessages(nextConversation);
+    setAiPrompt("");
     setAiGenerating(true);
     setAiError(null);
     setAiWarnings([]);
@@ -1004,7 +1026,54 @@ function FlowContent() {
       const generated = await generateWorkflowFromPrompt({
         prompt,
         doctor_id: doctorId,
+        conversation_history: nextConversation.map(({ role, content }) => ({
+          role,
+          content,
+        })),
+        clarification_turns: aiClarificationTurns,
       });
+
+      const assistantMessage = generated.assistant_message?.trim() || "";
+
+      if (generated.status === "needs_context") {
+        const followUpText = [assistantMessage, ...(generated.questions ?? [])]
+          .filter(Boolean)
+          .join("\n");
+        if (followUpText) {
+          setAiMessages((prev) => [
+            ...prev,
+            {
+              id: `assistant-${Date.now()}`,
+              role: "assistant",
+              content: followUpText,
+            },
+          ]);
+        }
+        setAiWarnings(Array.isArray(generated.missing_context) ? generated.missing_context : []);
+        setAiNotes([]);
+        setAiClarificationTurns((prev) => prev + 1);
+        return;
+      }
+
+      if (generated.status === "declined") {
+        const refusalText =
+          assistantMessage ||
+          generated.declined_reason ||
+          "I cannot build this workflow with the current blocks.";
+        setAiMessages((prev) => [
+          ...prev,
+          {
+            id: `assistant-${Date.now()}`,
+            role: "assistant",
+            content: refusalText,
+          },
+        ]);
+        setAiError(generated.declined_reason || refusalText);
+        setAiWarnings(Array.isArray(generated.missing_context) ? generated.missing_context : []);
+        setAiNotes([]);
+        setAiClarificationTurns(0);
+        return;
+      }
 
       const generatedNodes = Array.isArray(generated.nodes)
         ? (generated.nodes as Node[])
@@ -1024,6 +1093,16 @@ function FlowContent() {
 
       setAiWarnings(Array.isArray(generated.warnings) ? generated.warnings : []);
       setAiNotes(Array.isArray(generated.notes) ? generated.notes : []);
+      setAiMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content:
+            assistantMessage ||
+            `Done. I built ${generated.nodes.length} node(s) and ${generated.edges.length} edge(s).`,
+        },
+      ]);
 
       const currentWorkflowId = savedWorkflowId;
       setSaveStatus("saving");
@@ -1049,6 +1128,7 @@ function FlowContent() {
         }
       }
 
+      setAiClarificationTurns(0);
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2500);
       setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 120);
@@ -1063,7 +1143,7 @@ function FlowContent() {
     } finally {
       setAiGenerating(false);
     }
-  }, [aiPrompt, user, savedWorkflowId, setNodes, setEdges, fitView]);
+  }, [aiPrompt, aiMessages, aiClarificationTurns, user, savedWorkflowId, setNodes, setEdges, fitView]);
 
   // ── Load Workflow ─────────────────────────────────────────────────────
 
@@ -1636,40 +1716,60 @@ function FlowContent() {
 
               <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
                 <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  Describe trigger, conditions, actions, and outputs. The agent
-                  will generate a workflow graph and save it.
+                  I’ll ask for the missing workflow context, validate it against the available blocks, and decline if the request cannot be built safely.
                 </p>
 
-                <div className="relative">
-                  <textarea
-                    value={aiPrompt}
-                    onChange={(e) => setAiPrompt(e.target.value)}
-                    placeholder="Example: When lab results are received, check if HbA1c is greater than 8.0. If abnormal, call patient and schedule follow-up, then send summary to doctor. If normal, send SMS and log completion."
-                    rows={5}
-                    className="w-full px-3 py-2 pr-12 pb-10 rounded-lg bg-muted border border-input text-foreground text-xs placeholder-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-y"
-                  />
+                <div className="space-y-2 rounded-xl border border-border bg-muted/30 p-3">
+                  <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
+                    {aiMessages.map((message) => (
+                      <div
+                        key={message.id}
+                        className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                      >
+                        <div
+                          className={`max-w-[88%] rounded-2xl px-3 py-2 text-xs leading-relaxed shadow-sm ${
+                            message.role === "user"
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-background border border-border text-foreground"
+                          }`}
+                        >
+                          {message.content}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void toggleSpeechCapture();
-                    }}
-                    disabled={isSpeechTranscribing}
-                    aria-label={isSpeechRecording ? "Stop microphone" : "Start microphone"}
-                    aria-pressed={isSpeechRecording}
-                    className={`absolute right-2 bottom-2 h-7 w-7 rounded-full border flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                      isSpeechRecording
-                        ? "bg-red-600 border-red-600 text-white"
-                        : "bg-background border-border text-muted-foreground hover:text-foreground"
-                    }`}
-                    title={
-                      isSpeechRecording ? "Stop recording" : "Start recording"
-                    }
-                  >
-                    <Mic
-                      className={`size-4 ${isSpeechRecording ? "fill-current" : ""}`}
+                  <div className="relative">
+                    <textarea
+                      value={aiPrompt}
+                      onChange={(e) => setAiPrompt(e.target.value)}
+                      placeholder="Tell me the trigger, decision, and outcome you want. For example: When lab results are received, if HbA1c is above 8, call the patient and schedule a follow-up."
+                      rows={4}
+                      className="w-full px-3 py-2 pr-12 pb-10 rounded-lg bg-background border border-input text-foreground text-xs placeholder-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-y"
                     />
-                  </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void toggleSpeechCapture();
+                      }}
+                      disabled={isSpeechTranscribing}
+                      aria-label={isSpeechRecording ? "Stop microphone" : "Start microphone"}
+                      aria-pressed={isSpeechRecording}
+                      className={`absolute right-2 bottom-2 h-7 w-7 rounded-full border flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                        isSpeechRecording
+                          ? "bg-red-600 border-red-600 text-white"
+                          : "bg-background border-border text-muted-foreground hover:text-foreground"
+                      }`}
+                      title={
+                        isSpeechRecording ? "Stop recording" : "Start recording"
+                      }
+                    >
+                      <Mic
+                        className={`size-4 ${isSpeechRecording ? "fill-current" : ""}`}
+                      />
+                    </button>
+                  </div>
                 </div>
 
                 {isSpeechRecording && (
@@ -1732,21 +1832,29 @@ function FlowContent() {
                   disabled={aiGenerating}
                   onClick={() => {
                     setAiPrompt("");
+                    setAiMessages([
+                      {
+                        id: "ai-welcome-reset",
+                        role: "assistant",
+                        content: "hi how may I help you build a workflow today",
+                      },
+                    ]);
                     setAiError(null);
                     setAiWarnings([]);
                     setAiNotes([]);
                     setSpeechError(null);
+                    setAiClarificationTurns(0);
                   }}
                 >
                   Clear
                 </Button>
                 <Button
                   size="sm"
-                  disabled={aiGenerating || aiPrompt.trim().length < 10}
+                  disabled={aiGenerating || aiPrompt.trim().length < 1}
                   onClick={handleGenerateWorkflowWithAi}
                   className="bg-amber-600 hover:bg-amber-500 text-white"
                 >
-                  {aiGenerating ? "Generating…" : "Generate"}
+                  {aiGenerating ? "Thinking…" : "Send"}
                 </Button>
               </div>
             </section>
