@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Cormorant_Garamond, Jost, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import LocalAuthProviderWrapper from "./providers/LocalAuthProviderWrapper";
+import { RejectionProvider } from "@/components/RejectionProvider";
 
 const jost = Jost({
   variable: "--font-jost",
@@ -49,7 +50,9 @@ export default function RootLayout({
         className={`${jost.variable} ${cormorantGaramond.variable} ${jetbrainsMono.variable} antialiased`}
         suppressHydrationWarning
       >
-        <LocalAuthProviderWrapper>{children}</LocalAuthProviderWrapper>
+        <RejectionProvider>
+          <LocalAuthProviderWrapper>{children}</LocalAuthProviderWrapper>
+        </RejectionProvider>
       </body>
     </html>
   );

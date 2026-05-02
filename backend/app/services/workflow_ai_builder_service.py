@@ -19,6 +19,7 @@ import httpx
 
 from app.core.config import settings
 import app.services.postgres_service as db
+from app.services.rejection_logger import log_workflow_rejection
 
 logger = logging.getLogger(__name__)
 
@@ -772,6 +773,21 @@ def _builder_decline_response(
     assistant_message: str = "I cannot build this workflow with the current blocks.",
 ) -> dict[str, Any]:
     audit_log_id: str | None = None
+    
+    # Log rejection to universal text file for developer review
+    rejection_id = log_workflow_rejection(
+        doctor_id=doctor_id,
+        user_prompt=user_prompt,
+        rejection_reason=reason,
+        rejection_message=assistant_message,
+        missing_context=missing_context,
+        clarification_turns=clarification_turns,
+        additional_info={
+            "audit_level": audit_level,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    )
+    
     try:
         log_row = db.create_call_log(
             {
@@ -789,6 +805,7 @@ def _builder_decline_response(
                             "prompt": user_prompt,
                             "missing_context": missing_context,
                             "clarification_turns": clarification_turns,
+                            "rejection_id": rejection_id,
                         },
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     }
@@ -807,6 +824,7 @@ def _builder_decline_response(
         "can_build": False,
         "declined_reason": reason,
         "audit_log_id": audit_log_id,
+        "rejection_id": rejection_id,  # Add rejection ID to response
         "workflow_name": "",
         "workflow_description": "",
         "nodes": [],

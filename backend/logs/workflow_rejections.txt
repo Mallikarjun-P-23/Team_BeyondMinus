@@ -1,0 +1,78 @@
+
+================================================================================
+🚫 WORKFLOW GENERATION REJECTED
+================================================================================
+Rejection ID: 20260502_210020_378524
+Timestamp: 2026-05-02T21:00:20.378524+00:00
+Doctor ID: b911b21a-afc5-4e1d-a3a2-163934ad5df3
+Clarification Turns: 0
+
+--- USER PROMPT ---
+Go. Go. Go. Go. Go. Go.
+
+--- REJECTION REASON (Technical) ---
+Request is not related to a medical workflow.
+
+--- REJECTION MESSAGE (User-Facing) ---
+I can't help with that because it doesn't look like a medical workflow request.
+
+--- ADDITIONAL INFO ---
+{
+  "audit_level": "error",
+  "timestamp": "2026-05-02T21:00:20.378453+00:00"
+}
+================================================================================
+
+
+================================================================================
+🚫 WORKFLOW GENERATION REJECTED
+================================================================================
+Rejection ID: 20260502_210232_743414
+Timestamp: 2026-05-02T21:02:32.743414+00:00
+Doctor ID: b911b21a-afc5-4e1d-a3a2-163934ad5df3
+Clarification Turns: 0
+
+--- USER PROMPT ---
+Is it good is it good is it good
+
+--- REJECTION REASON (Technical) ---
+Request is not related to a medical workflow.
+
+--- REJECTION MESSAGE (User-Facing) ---
+I can't help with that because it doesn't look like a medical workflow request.
+
+--- ADDITIONAL INFO ---
+{
+  "audit_level": "error",
+  "timestamp": "2026-05-02T21:02:32.743216+00:00"
+}
+================================================================================
+
+
+================================================================================
+🚫 WORKFLOW GENERATION REJECTED
+================================================================================
+Rejection ID: 20260502_210621_108214
+Timestamp: 2026-05-02T21:06:21.108214+00:00
+Doctor ID: b911b21a-afc5-4e1d-a3a2-163934ad5df3
+Clarification Turns: 3
+
+--- USER PROMPT ---
+You make bed break and call receptionist. You can save log also, but when bed break, call receptionist.
+
+--- REJECTION REASON (Technical) ---
+I still do not have enough context after multiple clarification turns to build a safe workflow.
+
+--- REJECTION MESSAGE (User-Facing) ---
+I can't help with this safely because I still don't have enough usable context.
+
+--- MISSING CONTEXT ---
+  • trigger
+  • branching rule
+
+--- ADDITIONAL INFO ---
+{
+  "audit_level": "error",
+  "timestamp": "2026-05-02T21:06:21.107977+00:00"
+}
+================================================================================
