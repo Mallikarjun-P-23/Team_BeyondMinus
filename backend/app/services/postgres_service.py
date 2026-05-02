@@ -6,6 +6,8 @@ PostgreSQL service layer.
 This module replaces Supabase client calls with direct PostgreSQL access.
 """
 
+import logging
+import re
 import secrets
 from functools import lru_cache
 from contextlib import contextmanager
@@ -20,6 +22,9 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Json
 
 from app.core.config import settings
+
+
+logger = logging.getLogger(__name__)
 
 
 def _database_url() -> str:
@@ -116,7 +121,7 @@ SLOT_END_TIME = time(16, 30)
 LUNCH_BREAK_START = time(13, 30)
 LUNCH_BREAK_END = time(14, 30)
 SLOT_DURATION_MINUTES = 30
-ROLLING_WINDOW_DAYS = 3
+ROLLING_WINDOW_DAYS = 30  # Show one month of availability
 
 
 def _clinic_timezone():
@@ -166,6 +171,10 @@ def _is_inside_working_hours(dt: datetime) -> bool:
 
 
 def _ensure_doctor_rolling_slots(doctor_id: str, from_day: date | None = None) -> None:
+    """
+    Ensure availability slots exist for the next ROLLING_WINDOW_DAYS.
+    Slots are created in local timezone (CLINIC_TZ) and stored as UTC in the database.
+    """
     base_day = from_day or datetime.now(CLINIC_TZ).date()
     target_days = [
         base_day + timedelta(days=offset) for offset in range(ROLLING_WINDOW_DAYS)
@@ -173,9 +182,19 @@ def _ensure_doctor_rolling_slots(doctor_id: str, from_day: date | None = None) -
     target_days = [d for d in target_days if not _is_sunday(d)]
 
     if not target_days:
+        logger.info(
+            "[slots] No target days to create slots for doctor_id=%s (all Sundays filtered out)",
+            doctor_id
+        )
         return
 
+    logger.info(
+        "[slots] Ensuring slots for doctor_id=%s from %s to %s (%d days)",
+        doctor_id, target_days[0], target_days[-1], len(target_days)
+    )
+
     with _cursor() as cur:
+        # Delete Sunday slots that shouldn't exist (cleanup)
         cur.execute(
             """
             DELETE FROM availability_slots
@@ -187,8 +206,10 @@ def _ensure_doctor_rolling_slots(doctor_id: str, from_day: date | None = None) -
             (doctor_id, target_days),
         )
 
+        slots_created = 0
         for day in target_days:
-            for slot_start, slot_end in _iter_schedule_slots_for_day(day):
+            day_slots = _iter_schedule_slots_for_day(day)
+            for slot_start, slot_end in day_slots:
                 cur.execute(
                     """
                     INSERT INTO availability_slots (
@@ -204,6 +225,12 @@ def _ensure_doctor_rolling_slots(doctor_id: str, from_day: date | None = None) -
                     """,
                     (doctor_id, slot_start, slot_end),
                 )
+                slots_created += 1
+        
+        logger.info(
+            "[slots] Created/ensured %d slots for doctor_id=%s",
+            slots_created, doctor_id
+        )
 
 
 def _find_next_rebooking_slot(
@@ -1276,33 +1303,142 @@ def create_appointment_from_call_confirmation(
     call_log_id: str | None = None,
     call_origin: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    # Parse and normalize the confirmed time
     time_str = (confirmed_time or "09:00").strip() or "09:00"
+    original_time_str = time_str
+    
+    # Handle various time formats (HH:MM, H:MM, HH:MM AM/PM, etc.)
+    import re
+    time_match = re.match(r'(\d{1,2}):(\d{2})(?:\s*(AM|PM))?', time_str, re.IGNORECASE)
+    if time_match:
+        hour = int(time_match.group(1))
+        minute = int(time_match.group(2))
+        am_pm = time_match.group(3)
+        
+        # Convert 12-hour to 24-hour format if AM/PM is specified
+        if am_pm:
+            if am_pm.upper() == 'PM' and hour != 12:
+                hour += 12
+            elif am_pm.upper() == 'AM' and hour == 12:
+                hour = 0
+        
+        # Round to nearest 30-minute slot
+        if minute < 15:
+            minute = 0
+        elif minute < 45:
+            minute = 30
+        else:
+            minute = 0
+            hour += 1
+            if hour >= 24:
+                hour = 0
+        
+        time_str = f"{hour:02d}:{minute:02d}"
+    else:
+        # Fallback to default if parsing fails
+        logger.warning(
+            "[booking] Could not parse time '%s', using default 10:30",
+            original_time_str
+        )
+        time_str = "10:30"
+    
+    logger.info(
+        "[booking] Creating appointment: doctor_id=%s, patient_id=%s, date=%s, original_time=%s, normalized_time=%s",
+        doctor_id, patient_id, confirmed_date, original_time_str, time_str
+    )
+    
+    # Parse the date and time in local timezone (IST)
     local_start_dt = datetime.fromisoformat(f"{confirmed_date}T{time_str}:00")
     if local_start_dt.tzinfo is None:
         local_start_dt = local_start_dt.replace(tzinfo=CLINIC_TZ)
+    
+    # Convert to UTC for database storage
     start_dt = local_start_dt.astimezone(timezone.utc)
     end_dt = start_dt + timedelta(minutes=30)
+    
+    logger.info(
+        "[booking] Timezone conversion: local=%s (IST) -> utc=%s",
+        local_start_dt.isoformat(), start_dt.isoformat()
+    )
+    
+    # Ensure slots exist for this date (force regeneration)
+    try:
+        _ensure_doctor_rolling_slots(doctor_id, local_start_dt.date())
+        logger.info("[booking] Ensured slots exist for date=%s", confirmed_date)
+    except Exception as e:
+        logger.warning("[booking] Failed to ensure slots: %s", e)
 
+    # Look for existing slot within a 5-minute window (more flexible matching)
     with _cursor() as cur:
         cur.execute(
             """
-            SELECT id, status, reserved_by, reserved_until
+            SELECT id, status, reserved_by, reserved_until, slot_start, slot_end
             FROM availability_slots
             WHERE doctor_id = %s
               AND slot_start >= %s
               AND slot_start < %s
+              AND status IN ('available', 'reserved', 'cancelled')
+            ORDER BY ABS(EXTRACT(EPOCH FROM (slot_start - %s)))
             LIMIT 1
             """,
-            (doctor_id, start_dt, start_dt + timedelta(minutes=1)),
+            (doctor_id, start_dt - timedelta(minutes=5), start_dt + timedelta(minutes=5), start_dt),
         )
         slot = cur.fetchone()
+        
+        if slot:
+            logger.info(
+                "[booking] Found slot in 5-min window: id=%s, status=%s, slot_start=%s",
+                slot.get("id"), slot.get("status"), slot.get("slot_start")
+            )
+        else:
+            # Try broader search - any available slot on that date
+            cur.execute(
+                """
+                SELECT id, status, reserved_by, reserved_until, slot_start, slot_end
+                FROM availability_slots
+                WHERE doctor_id = %s
+                  AND slot_start::date = %s::date
+                  AND slot_start >= %s
+                  AND slot_start <= %s
+                  AND status IN ('available', 'reserved', 'cancelled')
+                ORDER BY ABS(EXTRACT(EPOCH FROM (slot_start - %s)))
+                LIMIT 1
+                """,
+                (doctor_id, start_dt, start_dt - timedelta(hours=1), start_dt + timedelta(hours=1), start_dt),
+            )
+            slot = cur.fetchone()
+            if slot:
+                logger.info(
+                    "[booking] Found slot in broader search: id=%s, status=%s, slot_start=%s",
+                    slot.get("id"), slot.get("status"), slot.get("slot_start")
+                )
 
     if not slot:
-        slot = create_doctor_slot(
-            doctor_id=doctor_id,
-            slot_start=start_dt.isoformat(),
-            slot_end=end_dt.isoformat(),
-            status="available",
+        logger.info("[booking] No existing slot found, creating new slot")
+        # Create a new slot if none exists
+        try:
+            slot = create_doctor_slot(
+                doctor_id=doctor_id,
+                slot_start=start_dt.isoformat(),
+                slot_end=end_dt.isoformat(),
+                status="available",
+            )
+            logger.info("[booking] Created new slot: id=%s", slot.get("id"))
+        except Exception as e:
+            logger.error("[booking] Failed to create slot: %s", e)
+            raise RuntimeError(f"Could not create slot for {confirmed_date} at {time_str}: {e}")
+    else:
+        # If slot was cancelled, update it to available
+        if slot.get("status") == "cancelled":
+            logger.info("[booking] Reactivating cancelled slot: id=%s", slot.get("id"))
+            _update_rows(
+                "availability_slots",
+                {"status": "available", "updated_at": _utc_now_iso()},
+                {"id": slot["id"]}
+            )
+        logger.info(
+            "[booking] Using slot: id=%s, status=%s, slot_start=%s",
+            slot.get("id"), slot.get("status"), slot.get("slot_start")
         )
 
     reserved_until_dt = _parse_iso_datetime(slot.get("reserved_until"))
@@ -1314,13 +1450,17 @@ def create_appointment_from_call_confirmation(
     )
 
     if not is_reserved_by_same_patient:
+        logger.info("[booking] Attempting to reserve slot for patient")
         reserved = reserve_slot(
             slot_id=slot["id"], patient_id=patient_id, hold_minutes=10
         )
         if not reserved:
+            logger.error("[booking] Failed to reserve slot - not available")
             raise RuntimeError("Confirmed slot is not available for booking")
+        logger.info("[booking] Slot reserved successfully")
 
     def _attempt_book() -> dict[str, Any] | None:
+        logger.info("[booking] Finalizing booking for slot")
         return _finalize_reserved_slot_booking(
             slot_id=slot["id"],
             patient_id=patient_id,
@@ -2288,7 +2428,7 @@ def create_consultation_message(payload: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def get_available_slot_options(doctor_id: str, count: int = 3) -> list[dict[str, Any]]:
+def get_available_slot_options(doctor_id: str, count: int = 50) -> list[dict[str, Any]]:
     """Return the top `count` available slots for a doctor (used for offering during call)."""
     _ensure_doctor_rolling_slots(doctor_id)
     now = datetime.now(timezone.utc)
@@ -2321,7 +2461,16 @@ def format_slot_options_for_speech(slots: list[dict[str, Any]]) -> str:
             time_str = ist.strftime("%-I:%M %p")
             date_str = ist.strftime("%B %-d")
             parts.append(f"{day} {date_str} at {time_str}")
-    return ", or ".join(parts) if parts else "Monday at 10:30 AM, Wednesday at 2:30 PM"
+    
+    if not parts:
+        return "Monday at 10:30 AM, Wednesday at 2:30 PM, or Friday at 10:30 AM"
+    elif len(parts) == 1:
+        return parts[0]
+    elif len(parts) == 2:
+        return f"{parts[0]} or {parts[1]}"
+    else:
+        # Join all but last with commas, add "or" before last item
+        return ", ".join(parts[:-1]) + f", or {parts[-1]}"
 
 
 def list_doctor_upcoming_appointments_with_report(

@@ -19,6 +19,7 @@ from starlette.concurrency import run_in_threadpool
 
 import app.services.postgres_service as db
 from app.core.config import settings
+from app.services.callback_service import CallbackService
 from app.services.blood_campaign_service import (
     get_blood_campaign_map_points,
     get_blood_campaign_snapshot,
