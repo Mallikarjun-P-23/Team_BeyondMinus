@@ -318,6 +318,7 @@ function FlowContent() {
   const [showNameModal, setShowNameModal] = useState(false);
   const [workflowName, setWorkflowName] = useState("");
   const [workflowDescription, setWorkflowDescription] = useState("");
+  const [workflowStatus, setWorkflowStatus] = useState("DRAFT");
 
   // ── AI Builder panel state ───────────────────────────────────────────
   const [aiPrompt, setAiPrompt] = useState("");
@@ -398,6 +399,7 @@ function FlowContent() {
           setSavedWorkflowId(wf.id);
           setWorkflowName(wf.name ?? "");
           setWorkflowDescription(wf.description ?? "");
+          setWorkflowStatus(wf.status ?? "DRAFT");
           setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 100);
         }
       } catch {
@@ -952,6 +954,7 @@ function FlowContent() {
           await updateWorkflow(savedWorkflowId, {
             name,
             description,
+            status: workflowStatus,
             nodes: nodes as unknown[],
             edges: edges as unknown[],
           });
@@ -960,6 +963,7 @@ function FlowContent() {
             doctor_id: doctorId,
             name,
             description,
+            status: workflowStatus,
             nodes: nodes as unknown[],
             edges: edges as unknown[],
           });
@@ -1027,6 +1031,7 @@ function FlowContent() {
         await updateWorkflow(currentWorkflowId, {
           name: nextName,
           description: nextDescription,
+          status: workflowStatus,
           nodes: generatedNodes as unknown[],
           edges: generatedEdges as unknown[],
         });
@@ -1035,6 +1040,7 @@ function FlowContent() {
           doctor_id: doctorId ?? "anonymous",
           name: nextName,
           description: nextDescription,
+          status: workflowStatus,
           nodes: generatedNodes as unknown[],
           edges: generatedEdges as unknown[],
         });
@@ -1179,6 +1185,7 @@ function FlowContent() {
       setSavedWorkflowId(wf.id);
       setWorkflowName(wf.name ?? "");
       setWorkflowDescription(wf.description ?? "");
+      setWorkflowStatus(wf.status ?? "DRAFT");
       setSelectedNode(null);
       setShowLoadModal(false);
       setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50);
@@ -1349,6 +1356,33 @@ function FlowContent() {
           <span className="text-muted-foreground text-sm">
             {workflowName ? workflowName : "Workflow Builder"}
           </span>
+
+          {/* Status Toggle */}
+          <div className="flex items-center gap-1.5 ml-4 border-l border-border pl-4">
+            <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest mr-1">Status</span>
+            <div className="flex bg-muted rounded-md p-0.5 border border-border">
+              <button
+                onClick={() => setWorkflowStatus("DRAFT")}
+                className={`px-2 py-0.5 text-[10px] font-bold rounded transition-colors ${
+                  workflowStatus === "DRAFT"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                DRAFT
+              </button>
+              <button
+                onClick={() => setWorkflowStatus("ENABLED")}
+                className={`px-2 py-0.5 text-[10px] font-bold rounded transition-colors ${
+                  workflowStatus === "ENABLED"
+                    ? "bg-success text-success-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                ENABLED
+              </button>
+            </div>
+          </div>
 
           {/* Node / edge counters */}
           {(nodes.length > 0 || edges.length > 0) && (
