@@ -10,216 +10,120 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import httpx
 
 from app.core.config import settings
+import app.services.postgres_service as db
 
 logger = logging.getLogger(__name__)
 
+_BLOCKS_CATALOG_PATH = (
+    Path(__file__).resolve().parents[1] / "core" / "workflow_blocks_catalog.json"
+)
+
+
+def _load_workflow_blocks_catalog() -> dict[str, Any]:
+    try:
+        return json.loads(_BLOCKS_CATALOG_PATH.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise RuntimeError(
+            f"Could not load workflow blocks catalog at {_BLOCKS_CATALOG_PATH}: {exc}"
+        ) from exc
+
+
+def _build_catalog_maps(catalog: dict[str, Any]) -> tuple[
+    dict[str, tuple[str, str, str, dict[str, str]]],
+    dict[str, tuple[str, ...]],
+    dict[str, tuple[str, ...]],
+    dict[str, tuple[str, ...]],
+]:
+    allowed_node_types: dict[str, tuple[str, str, str, dict[str, str]]] = {}
+    trigger_keywords: dict[str, tuple[str, ...]] = {}
+    output_keywords: dict[str, tuple[str, ...]] = {}
+    node_keywords: dict[str, tuple[str, ...]] = {}
+
+    for category in catalog.get("categories", []):
+        if not isinstance(category, dict):
+            continue
+
+        react_flow_type = str(category.get("react_flow_type") or "").strip()
+        if react_flow_type not in {"trigger", "action", "conditional", "endpoint"}:
+            continue
+
+        for node in category.get("nodes", []):
+            if not isinstance(node, dict):
+                continue
+
+            node_type = str(node.get("nodeType") or "").strip()
+            if not node_type:
+                continue
+
+            label = str(node.get("label") or node_type).strip() or node_type
+            description = str(node.get("description") or "").strip()
+            params = node.get("params") if isinstance(node.get("params"), dict) else {}
+            keywords = tuple(
+                str(keyword).strip().lower()
+                for keyword in node.get("keywords", [])
+                if str(keyword).strip()
+            )
+
+            allowed_node_types[node_type] = (react_flow_type, label, description, params)
+            node_keywords[node_type] = keywords
+            if react_flow_type == "trigger":
+                trigger_keywords[node_type] = keywords
+            if react_flow_type == "endpoint":
+                output_keywords[node_type] = keywords
+
+    return allowed_node_types, trigger_keywords, output_keywords, node_keywords
+
+
+_BLOCKS_CATALOG = _load_workflow_blocks_catalog()
+
 # nodeType -> (react_flow_type, default_label, default_description, default_params)
-_ALLOWED_NODE_TYPES: dict[str, tuple[str, str, str, dict[str, str]]] = {
-    # Triggers
-    "lab_results_received": (
-        "trigger",
-        "Lab Results Received",
-        "Triggered when lab results arrive for a patient",
-        {},
-    ),
-    "abnormal_result_detected": (
-        "trigger",
-        "Abnormal Result",
-        "Triggered when an abnormal lab value is detected",
-        {},
-    ),
-    "follow_up_due": (
-        "trigger",
-        "Follow-Up Due",
-        "Triggered when a patient is due for follow-up",
-        {},
-    ),
-    "appointment_missed": (
-        "trigger",
-        "Appointment Missed",
-        "Triggered when a patient misses an appointment",
-        {},
-    ),
-    "new_patient_registered": (
-        "trigger",
-        "New Patient Registered",
-        "Triggered when a new patient registers",
-        {},
-    ),
-    "prescription_expiring": (
-        "trigger",
-        "Prescription Expiring",
-        "Triggered when prescription is nearing expiry",
-        {},
-    ),
-    "blood_gathering_trigger": (
-        "trigger",
-        "Blood Gathering Trigger",
-        "Triggered when donor outreach should begin",
-        {},
-    ),
-    # Conditions
-    "check_result_values": (
-        "conditional",
-        "Check Result Values",
-        "Branch based on lab thresholds",
-        {"test_name": "", "operator": "greater_than", "threshold": ""},
-    ),
-    "check_insurance": (
-        "conditional",
-        "Check Insurance",
-        "Branch based on insurance status",
-        {"insurance_type": "any"},
-    ),
-    "check_patient_age": (
-        "conditional",
-        "Check Patient Age",
-        "Branch based on patient age",
-        {"operator": "greater_than", "threshold": ""},
-    ),
-    "check_appointment_history": (
-        "conditional",
-        "Check Appointment History",
-        "Branch based on last appointment",
-        {"days_since_last": "90"},
-    ),
-    "check_medication_list": (
-        "conditional",
-        "Check Medication List",
-        "Branch based on current medication",
-        {"medication": ""},
-    ),
-    # Actions
-    "call_patient": (
-        "action",
-        "Call Patient",
-        "Place AI outbound call",
-        {"lab_result_summary": ""},
-    ),
-    "send_sms": (
-        "action",
-        "Send SMS",
-        "Send SMS to patient",
-        {"message": ""},
-    ),
-    "schedule_appointment": (
-        "action",
-        "Schedule Appointment",
-        "Schedule appointment",
-        {},
-    ),
-    "send_notification": (
-        "action",
-        "Send Notification",
-        "Notify internal staff",
-        {"message": "", "recipient": "staff", "priority": "normal"},
-    ),
-    "create_lab_order": (
-        "action",
-        "Create Lab Order",
-        "Create lab order in system",
-        {"test_type": "", "priority": "routine", "notes": ""},
-    ),
-    "create_referral": (
-        "action",
-        "Create Referral",
-        "Create specialist referral",
-        {"specialty": "", "reason": "", "urgency": "routine"},
-    ),
-    "update_patient_record": (
-        "action",
-        "Update Patient Record",
-        "Update patient record fields",
-        {"risk_level": "", "notes": ""},
-    ),
-    "assign_to_staff": (
-        "action",
-        "Assign to Staff",
-        "Assign patient follow-up task",
-        {"staff_id": "", "task_type": "follow_up", "due_date": ""},
-    ),
-    "start_blood_campaign": (
-        "action",
-        "Start Blood Campaign",
-        "Initiate blood donor outreach",
-        {
-            "blood_type": "O+",
-            "recipient_name": "",
-            "patient_location": "",
-            "reason": "",
-            "batch_size": "3",
-        },
-    ),
-    # Output
-    "log_completion": (
-        "endpoint",
-        "Log Completion",
-        "Log workflow completion",
-        {},
-    ),
-    "generate_transcript": (
-        "endpoint",
-        "Generate Transcript",
-        "Fetch call transcript",
-        {},
-    ),
-    "create_report": (
-        "endpoint",
-        "Create Report",
-        "Create execution report",
-        {},
-    ),
-    "send_summary_to_doctor": (
-        "endpoint",
-        "Send Summary to Doctor",
-        "Send workflow summary to doctor",
-        {},
-    ),
-}
+_ALLOWED_NODE_TYPES, _TRIGGER_KEYWORDS, _OUTPUT_KEYWORDS, _NODE_KEYWORDS = _build_catalog_maps(
+    _BLOCKS_CATALOG
+)
 
 _TRIGGER_TYPES = {k for k, v in _ALLOWED_NODE_TYPES.items() if v[0] == "trigger"}
 _OUTPUT_TYPES = {k for k, v in _ALLOWED_NODE_TYPES.items() if v[0] == "endpoint"}
 _CONDITIONAL_TYPES = {k for k, v in _ALLOWED_NODE_TYPES.items() if v[0] == "conditional"}
 
-_TRIGGER_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "lab_results_received": ("lab", "result", "report", "upload", "test"),
-    "abnormal_result_detected": ("abnormal", "critical", "high", "low", "flag"),
-    "follow_up_due": ("follow", "due", "reminder", "pending"),
-    "appointment_missed": ("missed", "no show", "no_show"),
-    "new_patient_registered": ("new patient", "register", "signup", "sign up"),
-    "prescription_expiring": ("prescription", "medication", "expiry", "expire"),
-    "blood_gathering_trigger": ("blood", "donor", "campaign", "transfusion"),
+_BUILDER_MAX_CLARIFICATION_TURNS = 3
+_UNSUPPORTED_HINTS: dict[str, str] = {
+    str(k).lower(): str(v)
+    for k, v in (_BLOCKS_CATALOG.get("unsupported_hints") or {}).items()
+    if str(k).strip() and str(v).strip()
 }
+_DEFAULT_TRIGGER_TYPE = str(
+    (_BLOCKS_CATALOG.get("fallbacks") or {}).get("default_trigger")
+    or "lab_results_received"
+)
+_DEFAULT_OUTPUT_TYPE = str(
+    (_BLOCKS_CATALOG.get("fallbacks") or {}).get("default_output")
+    or "log_completion"
+)
+_MIN_CONFIDENCE_SCORE = float(
+    (_BLOCKS_CATALOG.get("confidence") or {}).get("min_score") or 0.55
+)
+_MEDICAL_KEYWORDS: tuple[str, ...] = tuple(
+    str(keyword).strip().lower()
+    for keyword in (_BLOCKS_CATALOG.get("medical_keywords") or [])
+    if str(keyword).strip()
+)
 
-_OUTPUT_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "create_report": ("report", "summary", "document"),
-    "generate_transcript": ("transcript", "call recording", "conversation"),
-    "send_summary_to_doctor": ("doctor", "notify", "summary", "email"),
-    "log_completion": ("log", "audit", "completion", "record"),
-}
+if not _ALLOWED_NODE_TYPES:
+    raise RuntimeError("Workflow blocks catalog did not contain any usable node definitions")
 
-_NODE_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "call_patient": ("call", "phone", "voice"),
-    "send_sms": ("sms", "text", "message"),
-    "schedule_appointment": ("schedule", "book", "appointment", "slot", "reschedule"),
-    "send_notification": ("notify", "alert", "notification", "staff"),
-    "create_lab_order": ("lab order", "order", "test"),
-    "create_referral": ("referral", "specialist"),
-    "update_patient_record": ("update", "record", "risk"),
-    "assign_to_staff": ("assign", "staff", "task"),
-    "start_blood_campaign": ("blood", "donor", "campaign"),
-    "check_result_values": ("threshold", "abnormal", "value", "check"),
-    "check_insurance": ("insurance",),
-    "check_patient_age": ("age",),
-    "check_appointment_history": ("history", "last appointment"),
-    "check_medication_list": ("medication", "drug"),
-}
+if _DEFAULT_TRIGGER_TYPE not in _ALLOWED_NODE_TYPES:
+    _DEFAULT_TRIGGER_TYPE = next(iter(_TRIGGER_TYPES), "")
+
+if _DEFAULT_OUTPUT_TYPE not in _ALLOWED_NODE_TYPES:
+    _DEFAULT_OUTPUT_TYPE = next(iter(_OUTPUT_TYPES), "")
 
 
 class WorkflowBuilderError(RuntimeError):
@@ -470,7 +374,7 @@ def _ensure_valid_flow(
             user_prompt,
             _TRIGGER_TYPES,
             _TRIGGER_KEYWORDS,
-            "lab_results_received",
+            _DEFAULT_TRIGGER_TYPE,
         )
         _, default_label, default_description, default_params = _ALLOWED_NODE_TYPES[trigger_type]
         trigger_id = _new_node_id()
@@ -496,7 +400,7 @@ def _ensure_valid_flow(
             user_prompt,
             {str(n.get("data", {}).get("nodeType") or "") for n in trigger_nodes},
             _TRIGGER_KEYWORDS,
-            str(trigger_nodes[0].get("data", {}).get("nodeType") or "lab_results_received"),
+            str(trigger_nodes[0].get("data", {}).get("nodeType") or _DEFAULT_TRIGGER_TYPE),
         )
         primary_trigger = next(
             (n for n in trigger_nodes if n.get("data", {}).get("nodeType") == preferred_trigger_type),
@@ -514,7 +418,7 @@ def _ensure_valid_flow(
             user_prompt,
             _OUTPUT_TYPES,
             _OUTPUT_KEYWORDS,
-            "log_completion",
+            _DEFAULT_OUTPUT_TYPE,
         )
         _, default_label, default_description, default_params = _ALLOWED_NODE_TYPES[output_type]
         out_id = _new_node_id()
@@ -539,7 +443,7 @@ def _ensure_valid_flow(
             user_prompt,
             {str(n.get("data", {}).get("nodeType") or "") for n in output_nodes},
             _OUTPUT_KEYWORDS,
-            str(output_nodes[0].get("data", {}).get("nodeType") or "log_completion"),
+            str(output_nodes[0].get("data", {}).get("nodeType") or _DEFAULT_OUTPUT_TYPE),
         )
         primary_output = next(
             (n for n in output_nodes if n.get("data", {}).get("nodeType") == preferred_output_type),
@@ -595,15 +499,22 @@ def _ensure_valid_flow(
 
 
 def _fallback_workflow(user_prompt: str) -> dict[str, Any]:
+    trigger_type = _DEFAULT_TRIGGER_TYPE
+    output_type = _DEFAULT_OUTPUT_TYPE
+    trigger_spec = _ALLOWED_NODE_TYPES.get(trigger_type)
+    output_spec = _ALLOWED_NODE_TYPES.get(output_type)
+    if trigger_spec is None or output_spec is None:
+        raise WorkflowBuilderError("Workflow catalog defaults are not configured correctly")
+
     trigger = {
         "id": _new_node_id(),
-        "type": "trigger",
+        "type": trigger_spec[0],
         "position": {"x": 120, "y": 80},
         "data": {
-            "label": "Lab Results Received",
-            "nodeType": "lab_results_received",
-            "description": "Triggered when lab results arrive for a patient",
-            "params": {},
+            "label": trigger_spec[1],
+            "nodeType": trigger_type,
+            "description": trigger_spec[2],
+            "params": trigger_spec[3],
         },
     }
     action = {
@@ -623,13 +534,13 @@ def _fallback_workflow(user_prompt: str) -> dict[str, Any]:
     }
     output = {
         "id": _new_node_id(),
-        "type": "endpoint",
+        "type": output_spec[0],
         "position": {"x": 780, "y": 80},
         "data": {
-            "label": "Log Completion",
-            "nodeType": "log_completion",
-            "description": "Log workflow completion",
-            "params": {},
+            "label": output_spec[1],
+            "nodeType": output_type,
+            "description": output_spec[2],
+            "params": output_spec[3],
         },
     }
 
@@ -660,17 +571,388 @@ def _fallback_workflow(user_prompt: str) -> dict[str, Any]:
     }
 
 
+def _coerce_history_messages(conversation_history: list[dict[str, Any]] | None) -> list[dict[str, str]]:
+    messages: list[dict[str, str]] = []
+    for message in conversation_history or []:
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get("role") or "").strip().lower()
+        content = str(message.get("content") or "").strip()
+        if role not in {"user", "assistant"} or not content:
+            continue
+        messages.append({"role": role, "content": content})
+    return messages
+
+
+def _combined_conversation_text(
+    user_prompt: str, conversation_history: list[dict[str, str]]
+) -> str:
+    parts: list[str] = []
+    for message in conversation_history:
+        parts.append(f"{message['role']}: {message['content']}")
+    if user_prompt.strip():
+        parts.append(f"user: {user_prompt.strip()}")
+    return "\n".join(parts)
+
+
+def _combined_user_text(
+    user_prompt: str, conversation_history: list[dict[str, str]]
+) -> str:
+    parts = [message["content"] for message in conversation_history if message["role"] == "user"]
+    if user_prompt.strip():
+        parts.append(user_prompt.strip())
+    return "\n".join(parts)
+
+
+def _best_keyword_match(text: str, keyword_map: dict[str, tuple[str, ...]]) -> str | None:
+    best_type: str | None = None
+    best_score = 0
+    for candidate_type, keywords in keyword_map.items():
+        score = sum(1 for keyword in keywords if keyword in text)
+        if score > best_score:
+            best_score = score
+            best_type = candidate_type
+    return best_type
+
+
+def _count_keyword_hits(text: str, keyword_map: dict[str, tuple[str, ...]]) -> int:
+    return sum(1 for keywords in keyword_map.values() for keyword in keywords if keyword in text)
+
+
+def _intent_signal_count(text: str) -> int:
+    return len(
+        re.findall(
+            r"\b(build|create|workflow|trigger|then|if|else|when|send|call|notify|schedule|check|report|log)\b",
+            text,
+        )
+    )
+
+
+def _is_medical_prompt(text: str) -> bool:
+    prompt_l = (text or "").lower()
+    if not prompt_l.strip():
+        return False
+
+    for keyword in _MEDICAL_KEYWORDS:
+        if keyword and keyword in prompt_l:
+            return True
+
+    if any(keyword in prompt_l for keyword in _UNSUPPORTED_HINTS.keys()):
+        return True
+
+    if _count_keyword_hits(prompt_l, _NODE_KEYWORDS) > 0:
+        return True
+
+    return False
+
+def _extract_builder_context(text: str) -> dict[str, Any]:
+    prompt_l = text.lower()
+    trigger = _best_keyword_match(prompt_l, _TRIGGER_KEYWORDS)
+    action = _best_keyword_match(
+        prompt_l,
+        {
+            node_type: keywords
+            for node_type, keywords in _NODE_KEYWORDS.items()
+            if _ALLOWED_NODE_TYPES.get(node_type, (None,))[0] == "action"
+        },
+    )
+    condition = _best_keyword_match(
+        prompt_l,
+        {
+            node_type: keywords
+            for node_type, keywords in _NODE_KEYWORDS.items()
+            if _ALLOWED_NODE_TYPES.get(node_type, (None,))[0] == "conditional"
+        },
+    )
+    output = _best_keyword_match(prompt_l, _OUTPUT_KEYWORDS)
+
+    wants_branching = bool(
+        re.search(
+            r"\b(if|when|otherwise|else|branch|threshold|greater than|less than|abnormal|normal)\b",
+            prompt_l,
+        )
+    )
+
+    unsupported_reasons = [
+        reason for hint, reason in _UNSUPPORTED_HINTS.items() if hint in prompt_l
+    ]
+
+    keyword_hits = _count_keyword_hits(prompt_l, _NODE_KEYWORDS)
+    intent_signals = _intent_signal_count(prompt_l)
+    token_count = len(re.findall(r"[a-z0-9]+", prompt_l))
+    is_unclear = token_count < 4 or (keyword_hits == 0 and intent_signals == 0)
+
+    if action is None:
+        action = _best_keyword_match(
+            prompt_l,
+            {
+                node_type: keywords
+                for node_type, keywords in _NODE_KEYWORDS.items()
+                if _ALLOWED_NODE_TYPES.get(node_type, (None,))[0] == "action"
+                and any(keyword in prompt_l for keyword in keywords)
+            },
+        )
+
+    return {
+        "trigger": trigger,
+        "action": action,
+        "condition": condition,
+        "output": output,
+        "wants_branching": wants_branching,
+        "unsupported_reasons": unsupported_reasons,
+        "keyword_hits": keyword_hits,
+        "intent_signals": intent_signals,
+        "is_unclear": is_unclear,
+    }
+
+
+def _builder_confidence_score(context: dict[str, Any]) -> float:
+    required_slots = 3 + (1 if context.get("wants_branching") else 0)
+    matched_slots = 0
+    if context.get("trigger"):
+        matched_slots += 1
+    if context.get("action"):
+        matched_slots += 1
+    if context.get("output"):
+        matched_slots += 1
+    if context.get("wants_branching"):
+        if context.get("condition"):
+            matched_slots += 1
+
+    coverage = matched_slots / max(required_slots, 1)
+    keyword_signal = min(float(context.get("keyword_hits") or 0) / 4.0, 1.0)
+    intent_signal = min(float(context.get("intent_signals") or 0) / 2.0, 1.0)
+    base_score = (0.55 * coverage) + (0.25 * keyword_signal) + (0.20 * intent_signal)
+    if context.get("is_unclear"):
+        base_score *= 0.3
+    return round(base_score, 3)
+
+
+def _clarification_questions(context: dict[str, Any]) -> list[str]:
+    questions: list[str] = []
+
+    if not context.get("trigger"):
+        questions.append("What event should trigger this workflow?")
+    if not context.get("action"):
+        questions.append("What should the workflow do after it is triggered?")
+    if context.get("wants_branching") and not context.get("condition"):
+        questions.append("If this needs branching, what rule or threshold should decide it?")
+    if not context.get("output"):
+        questions.append("What should the final outcome be, such as SMS, call, appointment, or log?")
+
+    return questions[:3]
+
+
+def _can_build_from_blocks(context: dict[str, Any]) -> tuple[bool, list[str], list[str]]:
+    unsupported_reasons = list(context.get("unsupported_reasons") or [])
+    if unsupported_reasons:
+        return False, [], unsupported_reasons
+
+    missing: list[str] = []
+    if not context.get("trigger"):
+        missing.append("trigger")
+    if not context.get("action"):
+        missing.append("action")
+    if context.get("wants_branching") and not context.get("condition"):
+        missing.append("branching rule")
+    if not context.get("output"):
+        missing.append("output")
+
+    return True, missing, []
+
+
+def _builder_decline_response(
+    *,
+    doctor_id: str | None,
+    user_prompt: str,
+    reason: str,
+    missing_context: list[str],
+    clarification_turns: int,
+    audit_level: str = "error",
+    assistant_message: str = "I cannot build this workflow with the current blocks.",
+) -> dict[str, Any]:
+    audit_log_id: str | None = None
+    try:
+        log_row = db.create_call_log(
+            {
+                "doctor_id": doctor_id,
+                "trigger_node": "workflow_builder",
+                "status": "failed",
+                "outcome": "declined",
+                "execution_log": [
+                    {
+                        "node_type": "workflow_builder",
+                        "label": "Agent Builder",
+                        "status": "error",
+                        "message": reason,
+                        "metadata": {
+                            "prompt": user_prompt,
+                            "missing_context": missing_context,
+                            "clarification_turns": clarification_turns,
+                        },
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                ],
+            }
+        )
+        audit_log_id = str(log_row.get("id") or "") or None
+    except Exception as exc:
+        logger.warning("Could not write workflow builder audit decline: %s", exc)
+
+    return {
+        "status": "declined",
+        "assistant_message": assistant_message,
+        "questions": [],
+        "missing_context": missing_context,
+        "can_build": False,
+        "declined_reason": reason,
+        "audit_log_id": audit_log_id,
+        "workflow_name": "",
+        "workflow_description": "",
+        "nodes": [],
+        "edges": [],
+        "notes": [],
+        "warnings": [reason],
+    }
+
+
+def _builder_clarification_response(
+    *,
+    questions: list[str],
+    missing_context: list[str],
+    clarification_turns: int,
+    assistant_message: str | None = None,
+) -> dict[str, Any]:
+    lead_in = assistant_message or "I can build this, but I need a bit more context first."
+    if clarification_turns > 0:
+        lead_in = assistant_message or "I still need a bit more context to make this precise."
+
+    return {
+        "status": "needs_context",
+        "assistant_message": lead_in,
+        "questions": questions,
+        "missing_context": missing_context,
+        "can_build": True,
+        "declined_reason": None,
+        "audit_log_id": None,
+        "workflow_name": "",
+        "workflow_description": "",
+        "nodes": [],
+        "edges": [],
+        "notes": [],
+        "warnings": [],
+    }
+
+
 async def generate_workflow_from_natural_language(
     *,
     prompt: str,
     doctor_id: str | None = None,
+    conversation_history: list[dict[str, Any]] | None = None,
+    clarification_turns: int = 0,
 ) -> dict[str, Any]:
     user_prompt = (prompt or "").strip()
     if not user_prompt:
         raise WorkflowBuilderError("Prompt cannot be empty")
 
     if _is_prompt_injection_attempt(user_prompt):
-        return _empty_workflow_response()
+        return {
+            "status": "declined",
+            "assistant_message": "",
+            "questions": [],
+            "missing_context": [],
+            "can_build": False,
+            "declined_reason": "The request could not be processed.",
+            "audit_log_id": None,
+            **_empty_workflow_response(),
+        }
+
+    history = _coerce_history_messages(conversation_history)
+    user_text = _combined_user_text(user_prompt, history)
+    combined_text = user_text
+    context = _extract_builder_context(combined_text)
+    confidence_score = _builder_confidence_score(context)
+
+    if not _is_medical_prompt(user_text):
+        return _builder_decline_response(
+            doctor_id=doctor_id,
+            user_prompt=user_prompt,
+            reason="Request is not related to a medical workflow.",
+            missing_context=[],
+            clarification_turns=clarification_turns,
+            assistant_message="I can't help with that because it doesn't look like a medical workflow request.",
+        )
+
+    if context.get("is_unclear"):
+        if clarification_turns < _BUILDER_MAX_CLARIFICATION_TURNS:
+            return _builder_clarification_response(
+                questions=[
+                    "Which event should trigger this workflow, and what should happen next?",
+                ],
+                missing_context=["trigger", "action", "output"],
+                clarification_turns=clarification_turns,
+                assistant_message="I need a little more detail to map this to the available workflow blocks.",
+            )
+        return _builder_decline_response(
+            doctor_id=doctor_id,
+            user_prompt=user_prompt,
+            reason="Prompt did not contain enough meaningful workflow intent or recognizable block references.",
+            missing_context=["trigger", "action", "output"],
+            clarification_turns=clarification_turns,
+            assistant_message="Sorry, I didn't understand that request well enough to build a safe workflow.",
+        )
+
+    supported_by_blocks, missing_context, unsupported_reasons = _can_build_from_blocks(context)
+    if not supported_by_blocks:
+        reason = "; ".join(unsupported_reasons) if unsupported_reasons else "Requested workflow uses blocks that are not available."
+        return _builder_decline_response(
+            doctor_id=doctor_id,
+            user_prompt=user_prompt,
+            reason=reason,
+            missing_context=missing_context,
+            clarification_turns=clarification_turns,
+            assistant_message="I can't help you with this request using the currently available workflow blocks.",
+        )
+
+    questions = _clarification_questions(context)
+    if questions and clarification_turns < _BUILDER_MAX_CLARIFICATION_TURNS:
+        return _builder_clarification_response(
+            questions=questions,
+            missing_context=missing_context,
+            clarification_turns=clarification_turns,
+        )
+
+    if questions and clarification_turns >= _BUILDER_MAX_CLARIFICATION_TURNS:
+        reason = (
+            "I still do not have enough context after multiple clarification turns to build a safe workflow."
+        )
+        return _builder_decline_response(
+            doctor_id=doctor_id,
+            user_prompt=user_prompt,
+            reason=reason,
+            missing_context=missing_context,
+            clarification_turns=clarification_turns,
+            assistant_message="I can't help with this safely because I still don't have enough usable context.",
+        )
+
+    if confidence_score < _MIN_CONFIDENCE_SCORE:
+        if clarification_turns < _BUILDER_MAX_CLARIFICATION_TURNS:
+            return _builder_clarification_response(
+                questions=[
+                    "Please restate this as: trigger event, then action, then expected outcome.",
+                ],
+                missing_context=missing_context or ["clear workflow intent"],
+                clarification_turns=clarification_turns,
+                assistant_message="I am not confident enough to build this workflow yet.",
+            )
+        return _builder_decline_response(
+            doctor_id=doctor_id,
+            user_prompt=user_prompt,
+            reason=f"Confidence score {confidence_score} is below required threshold {_MIN_CONFIDENCE_SCORE}.",
+            missing_context=missing_context or ["clear workflow intent"],
+            clarification_turns=clarification_turns,
+            assistant_message="Sorry, I didn't understand this request clearly enough to build a safe workflow.",
+        )
 
     api_key = settings.openrouter_api_key.strip()
     model = settings.openrouter_model.strip() or "deepseek/deepseek-v3.2"
@@ -739,6 +1021,8 @@ async def generate_workflow_from_natural_language(
     user_context = {
         "doctor_id": doctor_id,
         "request": user_prompt,
+        "conversation_history": history,
+        "context_profile": context,
         "constraints": {
             "max_nodes": 12,
             "must_include_trigger": True,
@@ -768,8 +1052,15 @@ async def generate_workflow_from_natural_language(
             )
     except Exception as exc:
         logger.exception("OpenRouter request failed")
-        return _fallback_workflow(user_prompt) | {
-            "warnings": [f"OpenRouter request failed: {exc}"]
+        return {
+            "status": "ready",
+            "assistant_message": "I drafted a safe fallback workflow because the model request failed.",
+            "questions": [],
+            "missing_context": [],
+            "can_build": True,
+            "declined_reason": None,
+            "audit_log_id": None,
+            **(_fallback_workflow(user_prompt) | {"warnings": [f"OpenRouter request failed: {exc}"]}),
         }
 
     if response.status_code >= 400:
@@ -779,10 +1070,22 @@ async def generate_workflow_from_natural_language(
             response.status_code,
             detail,
         )
-        return _fallback_workflow(user_prompt) | {
-            "warnings": [
-                f"OpenRouter returned {response.status_code}, used fallback workflow"
-            ]
+        return {
+            "status": "ready",
+            "assistant_message": "I drafted a safe fallback workflow because the model returned an error.",
+            "questions": [],
+            "missing_context": [],
+            "can_build": True,
+            "declined_reason": None,
+            "audit_log_id": None,
+            **(
+                _fallback_workflow(user_prompt)
+                | {
+                    "warnings": [
+                        f"OpenRouter returned {response.status_code}, used fallback workflow"
+                    ]
+                }
+            ),
         }
 
     try:
@@ -830,6 +1133,13 @@ async def generate_workflow_from_natural_language(
         ).strip()
 
         return {
+            "status": "ready",
+            "assistant_message": "I am confident this workflow can be built with the available blocks.",
+            "questions": [],
+            "missing_context": [],
+            "can_build": True,
+            "declined_reason": None,
+            "audit_log_id": None,
             "workflow_name": workflow_name,
             "workflow_description": workflow_description,
             "nodes": nodes,
@@ -839,6 +1149,13 @@ async def generate_workflow_from_natural_language(
         }
     except Exception as exc:
         logger.exception("Failed to parse OpenRouter response")
-        return _fallback_workflow(user_prompt) | {
-            "warnings": [f"AI response parsing failed: {exc}"]
+        return {
+            "status": "ready",
+            "assistant_message": "I drafted a safe fallback workflow because the AI response could not be parsed.",
+            "questions": [],
+            "missing_context": [],
+            "can_build": True,
+            "declined_reason": None,
+            "audit_log_id": None,
+            **(_fallback_workflow(user_prompt) | {"warnings": [f"AI response parsing failed: {exc}"]}),
         }
