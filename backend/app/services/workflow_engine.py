@@ -474,7 +474,7 @@ async def _handle_call_patient(node: dict, context: dict) -> tuple[bool, dict]:
     if doctor_id and not available_slots_str:
         try:
             # Fetch 50 slots to give agent comprehensive date/time coverage for patient-driven selection
-            slot_options_raw = db_svc.get_available_slot_options(doctor_id, count=50)
+            slot_options_raw = db_svc.get_available_slot_options(doctor_id, count=100)
             available_slots_str = db_svc.format_slot_options_for_speech(
                 slot_options_raw
             )

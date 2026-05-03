@@ -2428,7 +2428,7 @@ def create_consultation_message(payload: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def get_available_slot_options(doctor_id: str, count: int = 50) -> list[dict[str, Any]]:
+def get_available_slot_options(doctor_id: str, count: int = 100) -> list[dict[str, Any]]:
     """Return the top `count` available slots for a doctor (used for offering during call)."""
     _ensure_doctor_rolling_slots(doctor_id)
     now = datetime.now(timezone.utc)
