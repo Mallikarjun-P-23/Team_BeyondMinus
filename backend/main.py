@@ -13,6 +13,7 @@ logging.basicConfig(
 
 from app.api.endpoints import router, start_follow_up_scheduler
 from app.api import rejections
+from app.api import blood_requests
 from app.services import postgres_service as db
 
 app = FastAPI(
@@ -44,6 +45,7 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 app.include_router(router, prefix="/api")
 app.include_router(rejections.router, prefix="/api")  # Rejection monitoring
+app.include_router(blood_requests.router, prefix="/api")  # Blood requests
 
 
 @app.on_event("startup")

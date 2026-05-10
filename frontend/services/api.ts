@@ -1640,3 +1640,317 @@ export async function getBloodCampaignMap(campaignId: string) {
   }
   return response.json() as Promise<BloodCampaignMapPayload>;
 }
+
+// ============================================================================
+// Blood Request API Types & Functions
+// ============================================================================
+
+export interface BloodRequest {
+  id: string;
+  patient_id: string;
+  doctor_id?: string | null;
+  patient_name: string;
+  blood_group: string;
+  units_needed: number;
+  location: string;
+  needed_by_date: string;
+  is_emergency: boolean;
+  priority: "low" | "normal" | "high" | "critical";
+  status: "pending" | "acknowledged" | "arranged" | "fulfilled" | "cancelled" | "expired";
+  reason?: string | null;
+  medical_condition?: string | null;
+  hospital_name?: string | null;
+  contact_number: string;
+  alternative_contact?: string | null;
+  acknowledged_at?: string | null;
+  acknowledged_by?: string | null;
+  fulfilled_at?: string | null;
+  fulfilled_by?: string | null;
+  cancelled_at?: string | null;
+  cancellation_reason?: string | null;
+  notes?: string | null;
+  admin_notes?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BloodRequestNotification {
+  id: string;
+  blood_request_id: string;
+  doctor_id?: string | null;
+  notification_type: "emergency" | "reminder" | "status_change" | "acknowledgement";
+  title: string;
+  message: string;
+  is_read: boolean;
+  read_at?: string | null;
+  sent_via: string[];
+  created_at: string;
+  // Optional joined data
+  blood_request?: BloodRequest;
+}
+
+export interface CreateBloodRequestPayload {
+  patient_id: string;
+  patient_name: string;
+  blood_group: string;
+  units_needed?: number;
+  location: string;
+  needed_by_date: string;
+  contact_number: string;
+  is_emergency?: boolean;
+  reason?: string;
+  medical_condition?: string;
+  hospital_name?: string;
+  alternative_contact?: string;
+  doctor_id?: string;
+  notes?: string;
+}
+
+export interface BloodRequestFilters {
+  patient_id?: string;
+  doctor_id?: string;
+  status?: string;
+  is_emergency?: boolean;
+  blood_group?: string;
+  priority?: string;
+}
+
+export interface BloodRequestStats {
+  total_requests: number;
+  pending_requests: number;
+  emergency_requests: number;
+  fulfilled_requests: number;
+  requests_by_blood_group: Record<string, number>;
+  requests_by_status: Record<string, number>;
+}
+
+/**
+ * Create a new blood request
+ */
+export async function createBloodRequest(
+  payload: CreateBloodRequestPayload,
+): Promise<BloodRequest> {
+  const response = await fetch(`${API_URL}/api/blood-requests/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText);
+    throw new Error(
+      `Failed to create blood request (${response.status}): ${detail}`,
+    );
+  }
+  const data = await response.json();
+  return data.request as BloodRequest;
+}
+
+/**
+ * List blood requests with optional filters
+ */
+export async function listBloodRequests(
+  filters?: BloodRequestFilters,
+): Promise<BloodRequest[]> {
+  const params = new URLSearchParams();
+  if (filters?.patient_id) params.set("patient_id", filters.patient_id);
+  if (filters?.doctor_id) params.set("doctor_id", filters.doctor_id);
+  if (filters?.status) params.set("status", filters.status);
+  if (filters?.is_emergency !== undefined) params.set("is_emergency", String(filters.is_emergency));
+  if (filters?.blood_group) params.set("blood_group", filters.blood_group);
+  if (filters?.priority) params.set("priority", filters.priority);
+
+  const url = `${API_URL}/api/blood-requests/${params.toString() ? `?${params.toString()}` : ""}`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText);
+    throw new Error(
+      `Failed to list blood requests (${response.status}): ${detail}`,
+    );
+  }
+  const data = await response.json();
+  return data.requests as BloodRequest[];
+}
+
+/**
+ * Get a single blood request by ID
+ */
+export async function getBloodRequest(id: string): Promise<BloodRequest> {
+  const response = await fetch(`${API_URL}/api/blood-requests/${id}`);
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText);
+    throw new Error(
+      `Failed to get blood request (${response.status}): ${detail}`,
+    );
+  }
+  const data = await response.json();
+  return data.request as BloodRequest;
+}
+
+/**
+ * Update blood request status
+ */
+export async function updateBloodRequestStatus(
+  id: string,
+  status: string,
+  doctorId?: string,
+  notes?: string,
+): Promise<BloodRequest> {
+  const response = await fetch(`${API_URL}/api/blood-requests/${id}/status`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status, doctor_id: doctorId, notes }),
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText);
+    throw new Error(
+      `Failed to update blood request status (${response.status}): ${detail}`,
+    );
+  }
+  const data = await response.json();
+  return data.request as BloodRequest;
+}
+
+/**
+ * Acknowledge blood request (doctor action)
+ */
+export async function acknowledgeBloodRequest(
+  id: string,
+  doctorId: string,
+): Promise<BloodRequest> {
+  const response = await fetch(`${API_URL}/api/blood-requests/${id}/acknowledge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ doctor_id: doctorId }),
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText);
+    throw new Error(
+      `Failed to acknowledge blood request (${response.status}): ${detail}`,
+    );
+  }
+  const data = await response.json();
+  return data.request as BloodRequest;
+}
+
+/**
+ * Mark blood request as fulfilled
+ */
+export async function fulfillBloodRequest(
+  id: string,
+  doctorId: string,
+  notes?: string,
+): Promise<BloodRequest> {
+  const response = await fetch(`${API_URL}/api/blood-requests/${id}/fulfill`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ doctor_id: doctorId, notes }),
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText);
+    throw new Error(
+      `Failed to fulfill blood request (${response.status}): ${detail}`,
+    );
+  }
+  const data = await response.json();
+  return data.request as BloodRequest;
+}
+
+/**
+ * Cancel blood request
+ */
+export async function cancelBloodRequest(
+  id: string,
+  reason?: string,
+): Promise<BloodRequest> {
+  const response = await fetch(`${API_URL}/api/blood-requests/${id}/cancel`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText);
+    throw new Error(
+      `Failed to cancel blood request (${response.status}): ${detail}`,
+    );
+  }
+  const data = await response.json();
+  return data.request as BloodRequest;
+}
+
+/**
+ * Get blood request statistics
+ */
+export async function getBloodRequestStats(
+  doctorId?: string,
+): Promise<BloodRequestStats> {
+  const url = doctorId
+    ? `${API_URL}/api/blood-requests/stats?doctor_id=${doctorId}`
+    : `${API_URL}/api/blood-requests/stats`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText);
+    throw new Error(
+      `Failed to get blood request stats (${response.status}): ${detail}`,
+    );
+  }
+  return response.json();
+}
+
+/**
+ * List notifications for a doctor
+ */
+export async function listBloodRequestNotifications(
+  doctorId: string,
+  unreadOnly: boolean = false,
+): Promise<BloodRequestNotification[]> {
+  const params = unreadOnly ? "?unread_only=true" : "";
+  const response = await fetch(
+    `${API_URL}/api/blood-requests/notifications/doctor/${doctorId}${params}`,
+  );
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText);
+    throw new Error(
+      `Failed to list notifications (${response.status}): ${detail}`,
+    );
+  }
+  const data = await response.json();
+  return data.notifications as BloodRequestNotification[];
+}
+
+/**
+ * Mark notification as read
+ */
+export async function markNotificationRead(
+  notificationId: string,
+): Promise<{ success: boolean }> {
+  const response = await fetch(
+    `${API_URL}/api/blood-requests/notifications/${notificationId}/read`,
+    { method: "POST" },
+  );
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText);
+    throw new Error(
+      `Failed to mark notification as read (${response.status}): ${detail}`,
+    );
+  }
+  return response.json();
+}
+
+/**
+ * Mark all notifications as read for a doctor
+ */
+export async function markAllNotificationsRead(
+  doctorId: string,
+): Promise<{ success: boolean; marked_count: number }> {
+  const response = await fetch(
+    `${API_URL}/api/blood-requests/notifications/doctor/${doctorId}/read-all`,
+    { method: "POST" },
+  );
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText);
+    throw new Error(
+      `Failed to mark all notifications as read (${response.status}): ${detail}`,
+    );
+  }
+  return response.json();
+}
