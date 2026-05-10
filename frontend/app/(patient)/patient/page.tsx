@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import {
   BadgeCheck,
   CalendarClock,
+  Droplet,
   FileText,
   Loader2,
   Phone,
@@ -305,6 +306,12 @@ export default function PatientPortalPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Link href="/patient/blood-request">
+              <Button size="sm" variant="outline" className="border-red-200 text-red-600 hover:bg-red-50">
+                <Droplet className="size-4 mr-1" />
+                Blood Request
+              </Button>
+            </Link>
             <Link href="/patient/booking">
               <Button size="sm">
                 Book Appointment
@@ -389,6 +396,24 @@ export default function PatientPortalPage() {
             )}
             <Link href="/patient/booking" className="mt-3 block">
               <Button className="w-full">Book Appointment</Button>
+            </Link>
+          </div>
+
+          <div className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm">
+            <p className="text-xs uppercase tracking-[0.16em] text-red-600 font-semibold">
+              Emergency Services
+            </p>
+            <h2 className="mt-2 text-base font-semibold">
+              Ask Blood
+            </h2>
+            <p className="mt-1 text-xs leading-relaxed text-[#6E6057]">
+              Urgent requirement for blood? Send a request to your doctor or all available medical staff.
+            </p>
+            <Link href="/patient/blood-request" className="mt-3 block">
+              <Button className="w-full bg-red-600 hover:bg-red-700 text-white border-none">
+                <Droplet className="size-4 mr-2" />
+                Ask Blood
+              </Button>
             </Link>
           </div>
 

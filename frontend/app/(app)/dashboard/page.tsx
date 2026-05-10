@@ -9,6 +9,8 @@ import {
   listCallLogs,
   listConditions,
   pdfIntake,
+  getBloodRequestStats,
+  listBloodRequests,
 } from "@/services/api";
 
 import Link from "next/link";
@@ -40,6 +42,7 @@ import {
   AlertCircle,
   Upload,
   Loader2,
+  Droplet,
 } from "lucide-react";
 
 export default function DashboardPage() {
@@ -52,6 +55,8 @@ export default function DashboardPage() {
 
   const [workflows, setWorkflows] = useState<any[]>([]);
   const [callLogs, setCallLogs] = useState<any[]>([]);
+  const [bloodStats, setBloodStats] = useState<any>(null);
+  const [recentBloodRequests, setRecentBloodRequests] = useState<any[]>([]);
   const [loadingData, setLoadingData] = useState(true);
 
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
@@ -80,15 +85,21 @@ export default function DashboardPage() {
     if (!doctorId) return;
     setLoadingData(true);
     try {
-      const [wfData, clData] = await Promise.all([
+      const [wfData, clData, bStats, bRequests] = await Promise.all([
         listWorkflows(doctorId).catch(() => []),
         listCallLogs(undefined, doctorId).catch(() => []),
+        getBloodRequestStats(doctorId).catch(() => null),
+        listBloodRequests({ doctor_id: doctorId, limit: 5 }).catch(() => []),
       ]);
       setWorkflows(Array.isArray(wfData) ? wfData : []);
       setCallLogs(Array.isArray(clData) ? clData : []);
+      setBloodStats(bStats);
+      setRecentBloodRequests(Array.isArray(bRequests) ? bRequests : []);
     } catch {
       setWorkflows([]);
       setCallLogs([]);
+      setBloodStats(null);
+      setRecentBloodRequests([]);
     } finally {
       setLoadingData(false);
     }
@@ -172,6 +183,7 @@ export default function DashboardPage() {
     { label: "Completed", value: String(confirmedToday.length), icon: CheckCircle2 },
     { label: "Answer Rate", value: callsToday.length > 0 ? `${answerRate}%` : "—", icon: TrendingUp },
     { label: "Active Workflows", value: String(enabledWorkflows.length), icon: Zap },
+    { label: "Blood Requests", value: String(bloodStats?.pending_count || 0), icon: Droplet, color: "text-red-600" },
   ];
 
   const selectedPatient = patients.find((p) => p.id === selectedPatientId);
@@ -213,6 +225,12 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Link href="/blood-requests">
+            <Button variant="outline" className="border-red-200 text-red-600 hover:bg-red-50">
+              <Droplet className="size-4" />
+              Blood Requests
+            </Button>
+          </Link>
           <label className="cursor-pointer">
             <input type="file" accept=".pdf" className="hidden" onChange={handlePdfIntake} disabled={uploadingPdf} />
             <span className={cn(
@@ -241,7 +259,7 @@ export default function DashboardPage() {
         {stats.map((s) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-4">
             <div className="flex items-center justify-between">
-              <s.icon className="size-4 text-muted-foreground" />
+              <s.icon className={cn("size-4", (s as any).color || "text-muted-foreground")} />
             </div>
             <p className="mt-2 text-2xl font-bold">{loadingData ? "…" : s.value}</p>
             <p className="text-xs text-muted-foreground">{s.label}</p>
@@ -622,31 +640,41 @@ export default function DashboardPage() {
 
       {/* Bottom section: Workflows + Call Logs + Quick Links */}
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr_320px]">
-        {/* Workflows */}
+        {/* Recent Blood Requests */}
         <div className="rounded-xl border border-border bg-card">
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <div className="flex items-center gap-2">
-              <Workflow className="size-4 text-primary" />
-              <h3 className="text-sm font-semibold">Workflows</h3>
+              <Droplet className="size-4 text-red-600" />
+              <h3 className="text-sm font-semibold">Blood Requests</h3>
             </div>
-            <Link href="/workflow"><Button size="sm" variant="ghost"><Zap className="size-3" /> Open Builder</Button></Link>
+            <Link href="/blood-requests"><Button size="sm" variant="ghost">All <ArrowRight className="size-3" /></Button></Link>
           </div>
           {loadingData ? (
             <div className="px-5 py-6 text-sm text-muted-foreground">Loading…</div>
-          ) : workflows.length === 0 ? (
-            <div className="px-5 py-6 text-center text-sm text-muted-foreground">No workflows yet.</div>
+          ) : recentBloodRequests.length === 0 ? (
+            <div className="px-5 py-6 text-center text-sm text-muted-foreground">No blood requests yet.</div>
           ) : (
             <div className="divide-y divide-border/50">
-              {recentWorkflows.map((wf) => (
-                <div key={wf.id} className="flex items-center justify-between px-5 py-3 hover:bg-muted/30 transition-colors">
+              {recentBloodRequests.map((req) => (
+                <div key={req.id} className="flex items-center justify-between px-5 py-3 hover:bg-muted/30 transition-colors text-xs">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <h4 className="text-xs font-medium truncate">{wf.name}</h4>
-                      <span className={cn("inline-flex rounded-full px-1.5 py-0.5 text-[9px] font-semibold", wfStatusColor(wf.status))}>{wf.status}</span>
+                      <span className="font-semibold text-red-600">{req.blood_group}</span>
+                      <span className="text-muted-foreground truncate">{req.patient_name}</span>
                     </div>
-                    <span className="text-[10px] text-muted-foreground">{Array.isArray(wf.nodes) ? wf.nodes.length : 0} nodes</span>
+                    <div className="flex items-center gap-2 mt-1">
+                      {req.is_emergency && <span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-bold">EMERGENCY</span>}
+                      <span className="text-[10px] text-muted-foreground">{new Date(req.created_at).toLocaleDateString()}</span>
+                    </div>
                   </div>
-                  <Link href={`/workflow?id=${wf.id}`}><Button size="sm" variant="ghost"><ArrowRight className="size-3" /></Button></Link>
+                  <div className={cn(
+                    "rounded-full px-2 py-0.5 text-[10px] font-medium capitalize ml-2",
+                    req.status === "pending" ? "bg-yellow-50 text-yellow-700 border border-yellow-200" :
+                    req.status === "acknowledged" ? "bg-blue-50 text-blue-700 border border-blue-200" :
+                    "bg-green-50 text-green-700 border border-green-200"
+                  )}>
+                    {req.status}
+                  </div>
                 </div>
               ))}
             </div>
@@ -696,6 +724,9 @@ export default function DashboardPage() {
             </Link>
             <Link href="/audit-log" className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm hover:bg-muted/50 transition-colors">
               <Clock className="size-4 text-primary" /><span>Audit Log</span><ArrowUpRight className="size-3 ml-auto text-muted-foreground" />
+            </Link>
+            <Link href="/blood-requests" className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm bg-red-50 text-red-700 hover:bg-red-100 transition-colors">
+              <Droplet className="size-4 text-red-600" /><span>Blood Requests</span><ArrowUpRight className="size-3 ml-auto text-red-400" />
             </Link>
           </div>
         </div>
