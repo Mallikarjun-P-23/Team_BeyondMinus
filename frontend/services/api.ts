@@ -2012,3 +2012,17 @@ export async function uploadDonorList(doctorId: string, file: File): Promise<any
   }
   return response.json();
 }
+/**
+ * Trigger an individual donor call via ElevenLabs
+ */
+export async function initiateDonorCall(donorId: string, requestId: string, doctorId: string): Promise<any> {
+  const response = await fetch(`${API_URL}/api/blood-requests/donors/${donorId}/call?request_id=${requestId}&doctor_id=${doctorId}`, {
+    method: "POST"
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText);
+    throw new Error(`Failed to initiate donor call (${response.status}): ${detail}`);
+  }
+  return response.json();
+}

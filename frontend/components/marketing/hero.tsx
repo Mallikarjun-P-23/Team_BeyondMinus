@@ -68,9 +68,9 @@ export function Hero() {
                   textShadow: "0 1px 0 rgba(255,255,255,0.28)",
                 }}
               >
-                Medicine moves fast.
+                Blood moves fast.
                 <br />
-                <em className="italic text-[#5E5149]">Your workflows</em>
+                <em className="italic text-[#5E5149]">Your response</em>
                 <br />
                 should too.
               </h1>

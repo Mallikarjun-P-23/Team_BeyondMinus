@@ -2761,8 +2761,11 @@ def list_blood_donors(
     params = [doctor_id]
 
     if blood_type:
-        query += " AND UPPER(blood_type) = %s"
-        params.append(blood_type.upper())
+        types = [t.strip().upper() for t in blood_type.split(",")]
+        query += " AND UPPER(blood_type) IN ({})".format(
+            ", ".join(["%s"] * len(types))
+        )
+        params.extend(types)
     
     if location:
         query += " AND (location ILIKE %s OR city ILIKE %s OR state ILIKE %s OR address ILIKE %s)"

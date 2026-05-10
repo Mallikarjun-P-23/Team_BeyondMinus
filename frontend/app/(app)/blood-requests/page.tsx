@@ -164,28 +164,28 @@ export default function BloodRequestsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 p-6 flex items-center justify-center">
+      <div className="min-h-screen bg-background bg-grain p-6 flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin mx-auto text-red-600" />
-          <p className="mt-2 text-gray-600">Loading blood requests...</p>
+          <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
+          <p className="mt-2 text-muted-foreground font-medium">Loading blood requests...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-8">
+    <div className="min-h-screen bg-background bg-grain p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <div className="p-3 bg-red-100 rounded-xl">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-4">
+              <div className="p-4 bg-red-50 rounded-2xl shadow-sm">
                 <Droplet className="w-8 h-8 text-red-600" />
               </div>
               <div>
-                <h1 className="text-3xl md:text-4xl font-bold text-gray-900">Blood Requests</h1>
-                <p className="text-gray-600">Manage patient blood requests</p>
+                <h1 className="text-3xl md:text-5xl font-serif font-bold text-foreground">Blood Requests</h1>
+                <p className="text-muted-foreground italic font-medium">Coordinate emergency response & patient matching</p>
               </div>
             </div>
 
@@ -216,15 +216,17 @@ export default function BloodRequestsPage() {
 
           {/* Emergency Alert */}
           {emergencyRequests.length > 0 && (
-            <div className="bg-red-50 border-2 border-red-500 rounded-lg p-4 mb-4">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="w-6 h-6 text-red-600 shrink-0 mt-0.5" />
+            <div className="bg-red-600 text-white rounded-2xl p-5 mb-6 shadow-xl shadow-red-900/10 animate-in fade-in slide-in-from-top-4 duration-500">
+              <div className="flex items-start gap-4">
+                <div className="bg-white/20 p-2 rounded-lg">
+                  <AlertCircle className="w-6 h-6 text-white shrink-0" />
+                </div>
                 <div>
-                  <h3 className="font-bold text-red-900">
+                  <h3 className="font-bold text-lg">
                     🚨 {emergencyRequests.length} Emergency Request{emergencyRequests.length > 1 ? "s" : ""} Pending
                   </h3>
-                  <p className="text-red-700 text-sm mt-1">
-                    Urgent blood needed. Please review and acknowledge immediately.
+                  <p className="text-red-50 text-sm mt-1 font-medium">
+                    Immediate blood matching required. These patients are in critical condition.
                   </p>
                 </div>
               </div>
@@ -234,54 +236,62 @@ export default function BloodRequestsPage() {
 
         {/* Stats Cards */}
         {stats && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-            <div className="bg-white rounded-lg shadow p-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div className="bg-card border border-border rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-600">Total Requests</p>
-                  <p className="text-2xl font-bold text-gray-900">{stats.total_requests}</p>
+                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">Total Requests</p>
+                  <p className="text-3xl font-bold text-foreground">{stats.total_requests}</p>
                 </div>
-                <Activity className="w-8 h-8 text-blue-500" />
+                <div className="p-3 bg-stone-100 rounded-xl">
+                  <Activity className="w-6 h-6 text-stone-600" />
+                </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-card border border-border rounded-2xl p-5 shadow-sm">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-600">Pending</p>
-                  <p className="text-2xl font-bold text-yellow-600">{stats.pending_requests}</p>
+                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">Pending</p>
+                  <p className="text-3xl font-bold text-warning">{stats.pending_requests}</p>
                 </div>
-                <Clock className="w-8 h-8 text-yellow-500" />
+                <div className="p-3 bg-warning/10 rounded-xl">
+                  <Clock className="w-6 h-6 text-warning" />
+                </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-card border border-border rounded-2xl p-5 shadow-sm border-l-4 border-l-red-500">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-600">Emergency</p>
-                  <p className="text-2xl font-bold text-red-600">{stats.emergency_requests}</p>
+                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">Emergency</p>
+                  <p className="text-3xl font-bold text-red-600">{stats.emergency_requests}</p>
                 </div>
-                <AlertTriangle className="w-8 h-8 text-red-500" />
+                <div className="p-3 bg-red-50 rounded-xl">
+                  <AlertTriangle className="w-6 h-6 text-red-600" />
+                </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-card border border-border rounded-2xl p-5 shadow-sm">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-600">Fulfilled</p>
-                  <p className="text-2xl font-bold text-green-600">{stats.fulfilled_requests}</p>
+                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">Fulfilled</p>
+                  <p className="text-3xl font-bold text-success">{stats.fulfilled_requests}</p>
                 </div>
-                <CheckCircle2 className="w-8 h-8 text-green-500" />
+                <div className="p-3 bg-success/10 rounded-xl">
+                  <CheckCircle2 className="w-6 h-6 text-success" />
+                </div>
               </div>
             </div>
           </div>
         )}
 
         {/* Filters */}
-        <div className="bg-white rounded-lg shadow p-4 mb-6">
-          <div className="flex items-center gap-2 mb-3">
-            <Filter className="w-5 h-5 text-gray-600" />
-            <h3 className="font-semibold text-gray-900">Filters</h3>
+        <div className="bg-card border border-border rounded-2xl p-6 shadow-sm mb-8">
+          <div className="flex items-center gap-2 mb-4">
+            <Filter className="w-4 h-4 text-muted-foreground" />
+            <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Search Filters</h3>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
@@ -289,7 +299,7 @@ export default function BloodRequestsPage() {
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
+                className="w-full px-4 py-2.5 bg-background border border-border rounded-xl focus:ring-2 focus:ring-primary outline-none text-sm transition-all shadow-sm"
               >
                 <option value="all">All Status</option>
                 <option value="pending">Pending</option>
@@ -305,7 +315,7 @@ export default function BloodRequestsPage() {
               <select
                 value={bloodGroupFilter}
                 onChange={(e) => setBloodGroupFilter(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
+                className="w-full px-4 py-2.5 bg-background border border-border rounded-xl focus:ring-2 focus:ring-primary outline-none text-sm transition-all shadow-sm"
               >
                 <option value="all">All Blood Groups</option>
                 {["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].map((group) => (
@@ -322,7 +332,7 @@ export default function BloodRequestsPage() {
                   const val = e.target.value;
                   setEmergencyFilter(val === "all" ? undefined : val === "yes");
                 }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
+                className="w-full px-4 py-2.5 bg-background border border-border rounded-xl focus:ring-2 focus:ring-primary outline-none text-sm transition-all shadow-sm"
               >
                 <option value="all">All Requests</option>
                 <option value="yes">Emergency Only</option>
@@ -331,17 +341,17 @@ export default function BloodRequestsPage() {
             </div>
 
             <div className="flex items-end">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setStatusFilter("all");
-                  setBloodGroupFilter("all");
-                  setEmergencyFilter(undefined);
-                }}
-                className="w-full"
-              >
-                Reset Filters
-              </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setStatusFilter("all");
+                    setBloodGroupFilter("all");
+                    setEmergencyFilter(undefined);
+                  }}
+                  className="w-full h-11 rounded-xl border-border hover:bg-muted font-bold"
+                >
+                  Reset Filters
+                </Button>
             </div>
           </div>
         </div>
@@ -349,9 +359,9 @@ export default function BloodRequestsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Requests List */}
           <div className="lg:col-span-2">
-            <div className="bg-white rounded-lg shadow">
-              <div className="p-4 border-b border-gray-200">
-                <h2 className="text-lg font-bold flex items-center gap-2">
+            <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
+              <div className="p-5 border-b border-border bg-stone-100/30">
+                <h2 className="text-lg font-serif font-bold flex items-center gap-2">
                   <Package className="w-5 h-5 text-red-600" />
                   Blood Requests ({requests.length})
                 </h2>
@@ -499,7 +509,7 @@ export default function BloodRequestsPage() {
                                 size="sm"
                                 onClick={() => handleAcknowledge(request.id)}
                                 disabled={actionLoading === request.id}
-                                className="bg-blue-600 hover:bg-blue-700"
+                                className="bg-black hover:bg-black/80 text-white px-4 py-2 rounded-xl"
                               >
                                 {actionLoading === request.id ? (
                                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -566,9 +576,9 @@ export default function BloodRequestsPage() {
           {/* Notifications Sidebar */}
           {showNotifications && (
             <div className="lg:col-span-1">
-              <div className="bg-white rounded-lg shadow sticky top-6">
-                <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-                  <h3 className="font-bold flex items-center gap-2">
+              <div className="bg-card border border-border rounded-2xl shadow-sm sticky top-6 overflow-hidden">
+                <div className="p-5 border-b border-border bg-stone-100/30 flex items-center justify-between">
+                  <h3 className="font-bold font-serif flex items-center gap-2">
                     <Bell className="w-5 h-5 text-red-600" />
                     Notifications ({unreadCount})
                   </h3>

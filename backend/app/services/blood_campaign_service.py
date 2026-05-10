@@ -1000,3 +1000,46 @@ def get_blood_campaign_map_points(campaign_id: str) -> dict[str, Any] | None:
         "donors": donor_points,
         "ngos": ngo_points,
     }
+
+async def initiate_individual_donor_call(donor_id: str, request_id: str, doctor_id: str):
+    """Initiate a single outbound call to a donor using ElevenLabs agent."""
+    from app.services import elevenlabs_service as els
+    
+    donor = db.get_blood_donor(donor_id)
+    if not donor:
+        raise ValueError("Donor not found")
+        
+    blood_req = db.get_blood_request(request_id)
+    if not blood_req:
+        raise ValueError("Blood request not found")
+        
+    doctor = db.resolve_doctor(doctor_id)
+    doctor_name = doctor.get("name", "Medical Professional") if doctor else "Medical Professional"
+    
+    recipient_name = blood_req.get("patient_name") or "a patient"
+    blood_group = blood_req.get("blood_group")
+    location = blood_req.get("location") or ""
+    
+    call_reason = (
+        f"This is an urgent request for a blood donation. "
+        f"{recipient_name} requires {blood_group} blood at {location}. "
+        f"You are listed as a compatible donor in our database."
+    )
+    
+    # Trigger the call
+    call_result = await els.initiate_outbound_call(
+        patient_phone=donor["phone_number"],
+        patient_name=donor["name"],
+        doctor_name=doctor_name,
+        facility_name="Blood Emergency Network",
+        facility_address=location,
+        call_reason=call_reason,
+        extra_context={
+            "donor_id": donor_id,
+            "request_id": request_id,
+            "blood_group_needed": blood_group,
+            "patient_name": recipient_name
+        }
+    )
+    
+    return call_result

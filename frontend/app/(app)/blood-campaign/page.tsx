@@ -8,6 +8,7 @@ import {
   listDonors,
   createDonor,
   uploadDonorList,
+  initiateDonorCall,
 } from "@/services/api";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -73,6 +74,29 @@ const BLUE_ICON = typeof window !== "undefined" ? new L.Icon({
   shadowSize: [41, 41]
 }) : null;
 
+const BLOOD_COMPATIBILITY: Record<string, string[]> = {
+  "A+": ["A+", "A-", "O+", "O-"],
+  "A-": ["A-", "O-"],
+  "B+": ["B+", "B-", "O+", "O-"],
+  "B-": ["B-", "O-"],
+  "AB+": ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"],
+  "AB-": ["A-", "B-", "AB-", "O-"],
+  "O+": ["O+", "O-"],
+  "O-": ["O-"],
+};
+
+function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const R = 6371; // km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
 export default function BloodCampaignPage() {
   const searchParams = useSearchParams();
   const requestId = searchParams.get("request_id");
@@ -85,9 +109,13 @@ export default function BloodCampaignPage() {
   const [uploading, setUploading] = useState(false);
   const [bloodTypeFilter, setBloodTypeFilter] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
+  const [maxDistance, setMaxDistance] = useState<number>(5);
   const [viewMode, setViewMode] = useState<"table" | "map">("table");
   const [showAddDonor, setShowAddDonor] = useState(false);
+  const [useCompatibilityMatching, setUseCompatibilityMatching] = useState(true);
+  const [callingDonor, setCallingDonor] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
   const [newDonor, setNewDonor] = useState({
     name: "",
     blood_type: "",
@@ -147,27 +175,31 @@ export default function BloodCampaignPage() {
     if (!doctorId) return;
     setLoading(true);
     try {
-      let bType = bloodTypeFilter;
+      let bTypeFilter = bloodTypeFilter;
       let loc = locationFilter;
 
-      if (requestId) {
+      if (requestId && !request) {
         const reqData = await getBloodRequest(requestId);
         if (reqData) {
           setRequest(reqData);
           if (!bloodTypeFilter) {
-            bType = reqData.blood_group;
+            bTypeFilter = reqData.blood_group;
             setBloodTypeFilter(reqData.blood_group);
           }
-          if (!locationFilter) {
-            loc = reqData.location;
-            setLocationFilter(reqData.location);
-          }
+          // We intentionally do NOT set the location filter from the request anymore.
+          // This ensures we fetch all donors of the compatible blood type, 
+          // and let the 5km radius filter handle showing the closest matches.
         }
+      }
+
+      let queryBloodTypes = bTypeFilter;
+      if (useCompatibilityMatching && bTypeFilter && BLOOD_COMPATIBILITY[bTypeFilter]) {
+        queryBloodTypes = BLOOD_COMPATIBILITY[bTypeFilter].join(",");
       }
 
       const donorsData = await listDonors({
         doctor_id: doctorId,
-        blood_type: bType || undefined,
+        blood_type: queryBloodTypes || undefined,
         location: loc || undefined,
       });
       setDonors(donorsData);
@@ -176,7 +208,7 @@ export default function BloodCampaignPage() {
     } finally {
       setLoading(false);
     }
-  }, [doctorId, requestId, bloodTypeFilter, locationFilter]);
+  }, [doctorId, requestId, bloodTypeFilter, locationFilter, request, useCompatibilityMatching]);
 
   useEffect(() => {
     loadData();
@@ -189,12 +221,39 @@ export default function BloodCampaignPage() {
     return null;
   }, [request]);
 
+  const filteredDonors = useMemo(() => {
+    if (!patientCoords) return donors;
+    return donors.map(d => {
+      if (!d.latitude || !d.longitude) return { ...d, distance: Infinity };
+      const dist = getDistance(
+        patientCoords[0], patientCoords[1],
+        parseFloat(d.latitude), parseFloat(d.longitude)
+      );
+      return { ...d, distance: dist };
+    }).filter(d => d.distance <= maxDistance)
+      .sort((a, b) => a.distance - b.distance);
+  }, [donors, patientCoords, maxDistance]);
+
+  const handleCallDonor = async (donor: any) => {
+    if (!request || !doctorId) return;
+    setCallingDonor(donor.id);
+    try {
+      await initiateDonorCall(donor.id, request.id, doctorId);
+      alert(`Call initiated to ${donor.name} via ElevenLabs agent.`);
+    } catch (err) {
+      console.error("Failed to initiate call:", err);
+      alert("Failed to initiate call. Check Twilio/ElevenLabs config.");
+    } finally {
+      setCallingDonor(null);
+    }
+  };
+
   const donorMarkers = useMemo(() => {
-    return donors.filter(d => d.latitude && d.longitude).map(d => ({
+    return filteredDonors.filter(d => d.latitude && d.longitude).map(d => ({
       ...d,
       coords: [parseFloat(d.latitude), parseFloat(d.longitude)]
     }));
-  }, [donors]);
+  }, [filteredDonors]);
 
   const mapCenter = useMemo(() => {
     if (patientCoords) return patientCoords;
@@ -203,9 +262,9 @@ export default function BloodCampaignPage() {
   }, [patientCoords, donorMarkers]);
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden">
+    <div className="flex flex-col h-screen overflow-hidden bg-background bg-grain">
       {/* Header */}
-      <header className="border-b border-border bg-card px-6 py-4 flex items-center justify-between shrink-0">
+      <header className="border-b border-border bg-card/80 backdrop-blur-md px-6 py-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-4">
           <Link href="/blood-requests">
             <Button variant="ghost" size="sm" className="gap-2">
@@ -269,7 +328,7 @@ export default function BloodCampaignPage() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar: Filters and Request Details */}
-        <aside className="w-80 border-r border-border bg-muted/30 overflow-y-auto p-6 space-y-6">
+        <aside className="w-80 border-r border-border bg-card/40 overflow-y-auto p-6 space-y-6">
           {request && (
             <section className="space-y-3">
               <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Request Details</h3>
@@ -320,41 +379,65 @@ export default function BloodCampaignPage() {
                     ))}
                   </select>
                 </div>
+                {bloodTypeFilter && (
+                  <div className="space-y-1.5 pt-2">
+                    <label className="flex items-center gap-2 cursor-pointer group">
+                      <div 
+                        className={cn(
+                          "w-8 h-4 rounded-full relative transition-colors duration-200",
+                          useCompatibilityMatching ? "bg-red-600" : "bg-muted-foreground/30"
+                        )}
+                        onClick={() => setUseCompatibilityMatching(!useCompatibilityMatching)}
+                      >
+                        <div 
+                          className={cn(
+                            "absolute top-0.5 left-0.5 size-3 bg-white rounded-full transition-transform duration-200",
+                            useCompatibilityMatching ? "translate-x-4" : "translate-x-0"
+                          )}
+                        />
+                      </div>
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase group-hover:text-foreground transition-colors">
+                        Compatibility Matching
+                      </span>
+                    </label>
+                    <p className="text-[9px] text-muted-foreground leading-tight italic px-1">
+                      {useCompatibilityMatching 
+                        ? `Including all compatible types for ${bloodTypeFilter}` 
+                        : `Showing only ${bloodTypeFilter} donors`}
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-medium px-1">Location / Area</label>
-                <div className="relative">
-                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                  <input 
-                    type="text"
-                    value={locationFilter}
-                    onChange={(e) => setLocationFilter(e.target.value)}
-                    placeholder="Search by city or area..."
-                    className="w-full bg-card border border-border rounded-lg pl-10 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-                  />
+                <label className="text-xs font-medium px-1 flex justify-between">
+                  <span>Search Radius</span>
+                  <span className="text-red-600 font-bold">{maxDistance} km</span>
+                </label>
+                <input 
+                  type="range"
+                  min="1"
+                  max="50"
+                  step="1"
+                  value={maxDistance}
+                  onChange={(e) => setMaxDistance(parseInt(e.target.value))}
+                  className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-red-600"
+                />
+                <div className="flex justify-between text-[10px] text-muted-foreground px-1">
+                  <span>1km</span>
+                  <span>50km</span>
                 </div>
               </div>
 
-              <Button variant="outline" className="w-full" onClick={() => { setBloodTypeFilter(""); setLocationFilter(""); }}>
+              <Button variant="outline" className="w-full" onClick={() => { setBloodTypeFilter(""); setLocationFilter(""); setMaxDistance(5); }}>
                 Clear Filters
               </Button>
             </div>
           </section>
-
-          <section className="bg-blue-50 border border-blue-100 rounded-xl p-4 space-y-2">
-            <div className="flex items-center gap-2 text-blue-700">
-              <AlertCircle className="size-4" />
-              <h4 className="text-xs font-bold uppercase">Smart Matching</h4>
-            </div>
-            <p className="text-xs text-blue-600 leading-relaxed">
-              We are showing donors matching the patient&apos;s blood group and location. Donors within 10km are prioritized.
-            </p>
-          </section>
         </aside>
 
         {/* Main Content: Table or Map */}
-        <main className="flex-1 bg-background relative overflow-hidden flex flex-col">
+        <main className="flex-1 bg-background/20 relative overflow-hidden flex flex-col">
           {(loading || uploading) ? (
             <div className="flex-1 flex flex-col items-center justify-center space-y-4">
               <div className="size-12 border-4 border-red-600 border-t-transparent rounded-full animate-spin" />
@@ -372,7 +455,7 @@ export default function BloodCampaignPage() {
           ) : viewMode === "table" ? (
             <div className="flex-1 overflow-auto">
               <table className="w-full text-sm border-collapse">
-                <thead className="sticky top-0 bg-card z-10 border-b border-border shadow-sm">
+                <thead className="sticky top-0 bg-stone-100/90 backdrop-blur-sm z-10 border-b border-border shadow-sm">
                   <tr>
                     <th className="px-4 py-3 text-left font-semibold text-muted-foreground">Donor</th>
                     <th className="px-4 py-3 text-left font-semibold text-muted-foreground">Group</th>
@@ -385,14 +468,14 @@ export default function BloodCampaignPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
-                  {donors.length === 0 ? (
+                  {filteredDonors.length === 0 ? (
                     <tr>
                       <td colSpan={9} className="px-4 py-20 text-center text-muted-foreground italic">
                         No matching donors found for this criteria. Try expanding your search area.
                       </td>
                     </tr>
                   ) : (
-                    donors.map((donor) => (
+                    filteredDonors.map((donor) => (
                       <tr key={donor.id} className="hover:bg-muted/30 transition-colors group">
                         <td className="px-4 py-4">
                           <div className="flex items-center gap-3">
@@ -440,8 +523,14 @@ export default function BloodCampaignPage() {
                           )}
                         </td>
                         <td className="px-4 py-4 text-right">
-                          <Button size="sm" variant="outline" className="opacity-0 group-hover:opacity-100 transition-opacity">
-                            View Profile
+                          <Button 
+                            size="sm" 
+                            className="bg-black hover:bg-black/80 text-white h-8 gap-1.5"
+                            onClick={() => handleCallDonor(donor)}
+                            disabled={callingDonor === donor.id}
+                          >
+                            <Phone className="size-3" />
+                            {callingDonor === donor.id ? "Calling..." : "Call"}
                           </Button>
                         </td>
                       </tr>
@@ -476,7 +565,7 @@ export default function BloodCampaignPage() {
                     </Marker>
                     <Circle 
                       center={patientCoords as [number, number]} 
-                      radius={5000} 
+                      radius={maxDistance * 1000} 
                       pathOptions={{ color: 'red', fillColor: 'red', fillOpacity: 0.05 }} 
                     />
                   </>
@@ -487,15 +576,27 @@ export default function BloodCampaignPage() {
                     <Popup>
                       <div className="p-1 space-y-1">
                         <p className="font-bold">{donor.name}</p>
-                        <p className="text-[10px] bg-red-50 text-red-700 px-1.5 py-0.5 rounded inline-block font-bold">
-                          {donor.blood_type || donor.blood_group}
-                        </p>
+                        <div className="flex justify-between items-center">
+                          <p className="text-[10px] bg-red-50 text-red-700 px-1.5 py-0.5 rounded inline-block font-bold">
+                            {donor.blood_type || donor.blood_group}
+                          </p>
+                          {donor.distance !== undefined && donor.distance !== Infinity && (
+                            <span className="text-[10px] text-muted-foreground font-medium">
+                              {donor.distance.toFixed(1)} km away
+                            </span>
+                          )}
+                        </div>
                         <p className="text-xs flex items-center gap-1">
                           <Phone className="size-3" /> {donor.phone_number}
                         </p>
-                        <p className="text-xs italic text-muted-foreground">{donor.location}</p>
-                        <Button size="sm" className="w-full mt-2 h-7 text-[10px] bg-blue-600 hover:bg-blue-700">
-                          Initiate Campaign
+                        <Button 
+                          size="sm" 
+                          className="w-full mt-2 h-8 text-[10px] bg-black hover:bg-black/80 text-white gap-1.5"
+                          onClick={() => handleCallDonor(donor)}
+                          disabled={callingDonor === donor.id}
+                        >
+                          <Phone className="size-3" />
+                          {callingDonor === donor.id ? "Initiating..." : "Trigger Call"}
                         </Button>
                       </div>
                     </Popup>

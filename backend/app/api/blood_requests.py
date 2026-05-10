@@ -210,6 +210,24 @@ async def upload_donor_list(
         raise HTTPException(status_code=500, detail=f"Failed to process file: {exc}")
 
 
+@router.post("/donors/{donor_id}/call")
+async def trigger_donor_call(
+    donor_id: str,
+    request_id: str = Query(...),
+    doctor_id: str = Query(...),
+):
+    """Trigger an individual donor call via ElevenLabs"""
+    try:
+        result = await bcs.initiate_individual_donor_call(donor_id, request_id, doctor_id)
+        return {
+            "success": True,
+            "message": "Call initiated",
+            "result": result
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to initiate call: {exc}")
+
+
 @router.get("/{request_id}")
 async def get_blood_request(request_id: str):
     """Get a single blood request by ID"""
