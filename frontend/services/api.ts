@@ -1783,7 +1783,7 @@ export async function getBloodRequest(id: string): Promise<BloodRequest> {
     );
   }
   const data = await response.json();
-  return data.request as BloodRequest;
+  return data as BloodRequest;
 }
 
 /**
@@ -1951,6 +1951,64 @@ export async function markAllNotificationsRead(
     throw new Error(
       `Failed to mark all notifications as read (${response.status}): ${detail}`,
     );
+  }
+  return response.json();
+}
+/**
+ * List blood donors with optional filters
+ */
+export async function listDonors(params?: {
+  doctor_id?: string;
+  blood_type?: string;
+  location?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<any[]> {
+  const queryParams = new URLSearchParams();
+  if (params?.doctor_id) queryParams.append("doctor_id", params.doctor_id);
+  if (params?.blood_type) queryParams.append("blood_type", params.blood_type);
+  if (params?.location) queryParams.append("location", params.location);
+  if (params?.limit) queryParams.append("limit", String(params.limit));
+  if (params?.offset) queryParams.append("offset", String(params.offset));
+
+  const response = await fetch(`${API_URL}/api/blood-requests/donors?${queryParams.toString()}`);
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText);
+    throw new Error(`Failed to list donors (${response.status}): ${detail}`);
+  }
+  const data = await response.json();
+  return data.donors;
+}
+/**
+ * Create a new blood donor
+ */
+export async function createDonor(payload: any): Promise<any> {
+  const response = await fetch(`${API_URL}/api/blood-requests/donors`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText);
+    throw new Error(`Failed to create donor (${response.status}): ${detail}`);
+  }
+  return response.json();
+}
+/**
+ * Upload a donor list (CSV or Excel)
+ */
+export async function uploadDonorList(doctorId: string, file: File): Promise<any> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(`${API_URL}/api/blood-requests/donors/upload?doctor_id=${doctorId}`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText);
+    throw new Error(`Failed to upload donor list (${response.status}): ${detail}`);
   }
   return response.json();
 }

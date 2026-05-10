@@ -338,6 +338,10 @@ def _update_rows(
     return row or {}
 
 
+def _update_row(table: str, row_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    return _update_rows(table, payload, {"id": row_id})
+
+
 def _delete_rows(table: str, where: dict[str, Any]) -> None:
     if not where:
         raise RuntimeError("Unsafe delete without WHERE clause")
@@ -2630,9 +2634,20 @@ def upsert_blood_donors(
                     longitude,
                     last_donated_date,
                     blood_type,
+                    age,
+                    email,
+                    city,
+                    state,
+                    country,
+                    total_donations,
+                    eligible_for_donation,
+                    medical_condition,
+                    weight_kg,
+                    hemoglobin_g_dL,
+                    address,
                     updated_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
                 ON CONFLICT (doctor_id, phone_number)
                 DO UPDATE SET
                     name = EXCLUDED.name,
@@ -2642,6 +2657,17 @@ def upsert_blood_donors(
                     longitude = EXCLUDED.longitude,
                     last_donated_date = EXCLUDED.last_donated_date,
                     blood_type = EXCLUDED.blood_type,
+                    age = EXCLUDED.age,
+                    email = EXCLUDED.email,
+                    city = EXCLUDED.city,
+                    state = EXCLUDED.state,
+                    country = EXCLUDED.country,
+                    total_donations = EXCLUDED.total_donations,
+                    eligible_for_donation = EXCLUDED.eligible_for_donation,
+                    medical_condition = EXCLUDED.medical_condition,
+                    weight_kg = EXCLUDED.weight_kg,
+                    hemoglobin_g_dL = EXCLUDED.hemoglobin_g_dL,
+                    address = EXCLUDED.address,
                     updated_at = now()
                 RETURNING (xmax = 0) AS inserted
                 """,
@@ -2655,6 +2681,17 @@ def upsert_blood_donors(
                     donor.get("longitude"),
                     donor["last_donated_date"],
                     donor["blood_type"],
+                    donor.get("age"),
+                    donor.get("email"),
+                    donor.get("city"),
+                    donor.get("state"),
+                    donor.get("country", "India"),
+                    donor.get("total_donations", 0),
+                    donor.get("eligible_for_donation", True),
+                    donor.get("medical_condition"),
+                    donor.get("weight_kg"),
+                    donor.get("hemoglobin_g_dL"),
+                    donor.get("address"),
                 ),
             )
             row = cur.fetchone() or {}
@@ -2713,17 +2750,30 @@ def upsert_blood_ngos(
     return {"created": created, "updated": updated}
 
 
-def list_blood_donors(doctor_id: str) -> list[dict[str, Any]]:
+def list_blood_donors(
+    doctor_id: str,
+    blood_type: str | None = None,
+    location: str | None = None,
+    limit: int = 100,
+    offset: int = 0
+) -> list[dict[str, Any]]:
+    query = "SELECT * FROM blood_donors WHERE doctor_id = %s"
+    params = [doctor_id]
+
+    if blood_type:
+        query += " AND UPPER(blood_type) = %s"
+        params.append(blood_type.upper())
+    
+    if location:
+        query += " AND (location ILIKE %s OR city ILIKE %s OR state ILIKE %s OR address ILIKE %s)"
+        l_param = f"%{location}%"
+        params.extend([l_param, l_param, l_param, l_param])
+
+    query += " ORDER BY created_at DESC LIMIT %s OFFSET %s"
+    params.extend([limit, offset])
+
     with _cursor() as cur:
-        cur.execute(
-            """
-            SELECT *
-            FROM blood_donors
-            WHERE doctor_id = %s
-            ORDER BY created_at DESC
-            """,
-            (doctor_id,),
-        )
+        cur.execute(query, params)
         return list(cur.fetchall())
 
 

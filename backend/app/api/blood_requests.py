@@ -8,7 +8,9 @@ from typing import Optional, List
 from datetime import datetime
 
 from app.services import blood_request_service as brs
+from app.services import blood_campaign_service as bcs
 from app.services import postgres_service as db
+from fastapi import File, UploadFile
 
 router = APIRouter(prefix="/blood-requests", tags=["blood-requests"])
 
@@ -144,6 +146,68 @@ async def get_blood_request_statistics(doctor_id: Optional[str] = Query(None)):
         return stats
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to fetch stats: {exc}")
+
+
+@router.get("/donors")
+async def list_donors(
+    doctor_id: Optional[str] = Query(None),
+    blood_type: Optional[str] = Query(None),
+    location: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    """List blood donors with filters"""
+    try:
+        donors = db.list_blood_donors(
+            doctor_id=doctor_id,
+            blood_type=blood_type,
+            location=location,
+            limit=limit,
+            offset=offset,
+        )
+        return {
+            "count": len(donors),
+            "donors": donors
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch donors: {exc}")
+
+
+@router.post("/donors", status_code=201)
+async def create_donor(body: dict):
+    """Create a new blood donor manually"""
+    try:
+        doctor_id = body.get("doctor_id")
+        if not doctor_id:
+            raise HTTPException(status_code=400, detail="doctor_id is required")
+        
+        # Upsert accepts a list
+        result = db.upsert_blood_donors(doctor_id, [body])
+        return {
+            "success": True,
+            "message": "Donor registered successfully",
+            "result": result
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to register donor: {exc}")
+
+
+@router.post("/donors/upload")
+async def upload_donor_list(
+    doctor_id: str = Query(...),
+    file: UploadFile = File(...),
+):
+    """Upload a donor list (CSV or Excel)"""
+    try:
+        contents = await file.read()
+        result = bcs.ingest_blood_file(doctor_id, contents, file.filename)
+        return {
+            "success": True,
+            "message": "File processed successfully",
+            "summary": result
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to process file: {exc}")
 
 
 @router.get("/{request_id}")

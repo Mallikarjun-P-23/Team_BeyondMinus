@@ -39,6 +39,7 @@ import {
   ChevronUp,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 const STATUS_COLORS = {
   pending: "bg-yellow-50 text-yellow-700 border-yellow-200",
@@ -57,6 +58,7 @@ const PRIORITY_COLORS = {
 };
 
 export default function BloodRequestsPage() {
+  const router = useRouter();
   const { user } = useLocalAuth();
   const doctorId = user?.doctor_id || user?.sub;
 
@@ -109,7 +111,7 @@ export default function BloodRequestsPage() {
     setActionLoading(requestId);
     try {
       await acknowledgeBloodRequest(requestId, doctorId);
-      await loadData();
+      router.push(`/blood-campaign?request_id=${requestId}`);
     } catch (err) {
       console.error("Failed to acknowledge:", err);
       alert("Failed to acknowledge request");

@@ -10,6 +10,8 @@ from io import BytesIO
 from typing import Any
 
 import httpx
+import csv
+from io import BytesIO, StringIO
 from openpyxl import load_workbook
 
 import app.services.postgres_service as db
@@ -517,8 +519,99 @@ def parse_blood_excel(contents: bytes) -> dict[str, Any]:
     )
 
 
-def ingest_blood_excel(doctor_id: str, contents: bytes) -> dict[str, Any]:
-    parsed = parse_blood_excel(contents)
+def parse_blood_csv(contents: bytes) -> dict[str, Any]:
+    text = contents.decode("utf-8", errors="ignore")
+    reader = csv.DictReader(StringIO(text))
+    
+    donors = []
+    rejected_rows = []
+    
+    # Mapping for user's specific format
+    field_mapping = {
+        "full_name": "name",
+        "gender": "gender",
+        "age": "age",
+        "blood_group": "blood_type",
+        "contact_number": "phone_number",
+        "email": "email",
+        "city": "city",
+        "state": "state",
+        "country": "country",
+        "last_donation_date": "last_donated_date",
+        "total_donations": "total_donations",
+        "eligible_for_donation": "eligible_for_donation",
+        "medical_condition": "medical_condition",
+        "weight_kg": "weight_kg",
+        "hemoglobin_g_dl": "hemoglobin_g_dL",
+    }
+    
+    for row_idx, row in enumerate(reader, start=2):
+        try:
+            # Normalize keys to lowercase with underscores
+            row = {k.strip().lower().replace(" ", "_"): v for k, v in row.items() if k}
+            
+            donor_data = {}
+            for csv_key, internal_key in field_mapping.items():
+                val = row.get(csv_key)
+                if val:
+                    donor_data[internal_key] = val
+            
+            # Additional logic for location
+            city = row.get("city")
+            state = row.get("state")
+            location = ", ".join(filter(None, [city, state]))
+            if not location:
+                location = row.get("location")
+                
+            if location:
+                donor_data["location"] = location
+                lat, lon = _parse_location_coordinates(location)
+                donor_data["latitude"] = lat
+                donor_data["longitude"] = lon
+            else:
+                donor_data["location"] = "Unknown"
+            
+            # Validation and normalization
+            if not donor_data.get("name"):
+                donor_data["name"] = row.get("name")
+            
+            if not donor_data.get("phone_number"):
+                donor_data["phone_number"] = row.get("phone_number")
+                
+            if not donor_data.get("name") or not donor_data.get("phone_number"):
+                raise ValueError("Name and Phone Number are required")
+
+            # Basic normalization
+            donor_data["gender"] = _normalize_gender(donor_data.get("gender") or "male")
+            donor_data["phone_number"] = _normalize_phone(donor_data["phone_number"])
+            donor_data["blood_type"] = _normalize_blood_type(donor_data.get("blood_type") or row.get("blood_type") or "O+")
+            
+            last_donated = donor_data.get("last_donated_date")
+            if not last_donated or str(last_donated).lower() == "never":
+                donor_data["last_donated_date"] = date(2000, 1, 1).isoformat()
+            else:
+                donor_data["last_donated_date"] = _parse_excel_date(last_donated)
+            
+            donors.append(donor_data)
+            
+        except Exception as exc:
+            rejected_rows.append({
+                "row": row_idx,
+                "error": str(exc)
+            })
+            
+    return {
+        "donors": donors,
+        "ngos": [],
+        "rejected_rows": rejected_rows
+    }
+
+
+def ingest_blood_file(doctor_id: str, contents: bytes, filename: str) -> dict[str, Any]:
+    if filename.lower().endswith(".csv"):
+        parsed = parse_blood_csv(contents)
+    else:
+        parsed = parse_blood_excel(contents)
 
     donor_result = db.upsert_blood_donors(doctor_id, parsed["donors"])
     ngo_result = db.upsert_blood_ngos(doctor_id, parsed["ngos"])
@@ -536,6 +629,10 @@ def ingest_blood_excel(doctor_id: str, contents: bytes) -> dict[str, Any]:
         },
         "rejected_rows": parsed["rejected_rows"],
     }
+
+
+# Alias for backward compatibility
+ingest_blood_excel = ingest_blood_file
 
 
 def _dcr_value(results: dict[str, Any], key: str) -> str:

@@ -125,7 +125,6 @@ def get_blood_request(request_id: str) -> Dict[str, Any] | None:
             br.*,
             p.name as patient_full_name,
             p.phone as patient_phone,
-            p.email as patient_email,
             d.name as doctor_name,
             ack_doc.name as acknowledged_by_name,
             ful_doc.name as fulfilled_by_name
