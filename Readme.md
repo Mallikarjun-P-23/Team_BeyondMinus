@@ -13,7 +13,7 @@ Its goal is simple:
 
 ---
 
-## Problem We Are Solving
+## Problem We Are Solving - 
 
 Many industries still rely heavily on manual communication to complete workflows.
 
