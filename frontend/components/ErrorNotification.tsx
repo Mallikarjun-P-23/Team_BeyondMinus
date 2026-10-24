@@ -7,7 +7,7 @@ import {
   ToastTitle,
   ToastDescription,
   type ToastActionElement,
-} from "@/components/ui/toast"
+} from "@/components/ui/toast2"
 
 export interface SystemError {
   error_id: string

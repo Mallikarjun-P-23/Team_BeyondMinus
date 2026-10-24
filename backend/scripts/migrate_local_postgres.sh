@@ -85,6 +85,10 @@ migration_files=(
   015_report_aware_call_linkage.sql
   016_create_blood_campaign_tables.sql
   017_create_follow_up_cron_tables.sql
+  018_create_callback_requests.sql
+  019_create_system_monitoring_tables.sql
+  020_create_blood_requests.sql
+  021_update_blood_donors_schema.sql
 )
 
 existing_markers="$(run_psql -tAc 'SELECT COUNT(*) FROM schema_migrations;' | tr -d '[:space:]')"

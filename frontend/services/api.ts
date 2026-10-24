@@ -1713,6 +1713,7 @@ export interface BloodRequestFilters {
   is_emergency?: boolean;
   blood_group?: string;
   priority?: string;
+  limit?: number;
 }
 
 export interface BloodRequestStats {
@@ -1758,6 +1759,7 @@ export async function listBloodRequests(
   if (filters?.is_emergency !== undefined) params.set("is_emergency", String(filters.is_emergency));
   if (filters?.blood_group) params.set("blood_group", filters.blood_group);
   if (filters?.priority) params.set("priority", filters.priority);
+  if (filters?.limit) params.set("limit", String(filters.limit));
 
   const url = `${API_URL}/api/blood-requests/${params.toString() ? `?${params.toString()}` : ""}`;
   const response = await fetch(url);
